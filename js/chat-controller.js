@@ -1482,5 +1482,6 @@ If you output anything else, the system will reject your response.
         clearChat,
         processToolCall,
         getToolCallHistory: () => [...state.toolCallHistory],
+        isValidUserInput,
     };
 })(); 
