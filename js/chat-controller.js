@@ -410,6 +410,9 @@ Answer: [your final, concise answer based on the reasoning above]`;
         state.originalUserQuestion = message;
         state.toolWorkflowActive = true;
 
+        // Clear previous plan when starting a new message
+        clearPlan();
+
         UIController.showStatus('Sending message...', getAgentDetails());
         setInputState(false);
 
@@ -427,12 +430,13 @@ Answer: [your final, concise answer based on the reasoning above]`;
             if (selectedModel.startsWith('gpt')) {
                 state.chatHistory.push({ role: 'user', content: enhancedMessage });
                 debugLog("Sent enhanced message to GPT:", enhancedMessage);
-                await handleOpenAIMessage(selectedModel, enhancedMessage);
+                // Intercept the first AI response to extract plan
+                await handleOpenAIMessageWithPlan(selectedModel, enhancedMessage);
             } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
                 if (state.chatHistory.length === 0) {
                     state.chatHistory.push({ role: 'user', content: '' });
                 }
-                await handleGeminiMessage(selectedModel, enhancedMessage);
+                await handleGeminiMessageWithPlan(selectedModel, enhancedMessage);
             }
         } catch (error) {
             let userMessage = 'Error: ' + error.message;
@@ -562,25 +566,65 @@ Answer: [your final, concise answer based on the reasoning above]`;
         }
     }
 
-    // Refactored handleOpenAIMessage
-    async function handleOpenAIMessage(model, message) {
+    // Helper: handleOpenAIMessage with plan extraction
+    async function handleOpenAIMessageWithPlan(model, message) {
         if (state.settings.streaming) {
             UIController.showStatus('Streaming response...', getAgentDetails());
             const aiMsgElement = UIController.createEmptyAIMessage();
-            await handleStreamingResponse({ model, aiMsgElement, streamFn: ApiService.streamOpenAIRequest, onToolCall: processToolCall });
+            let firstPlanExtracted = false;
+            await handleStreamingResponse({
+                model,
+                aiMsgElement,
+                streamFn: ApiService.streamOpenAIRequest,
+                onToolCall: processToolCall,
+                onChunk: (chunk, fullText) => {
+                    if (!firstPlanExtracted && fullText) {
+                        const planSteps = extractPlanFromText(fullText);
+                        if (planSteps.length > 0) {
+                            setPlan(planSteps);
+                            firstPlanExtracted = true;
+                        }
+                    }
+                }
+            });
         } else {
-            await handleNonStreamingResponse({ model, requestFn: ApiService.sendOpenAIRequest, onToolCall: processToolCall });
+            // Non-streaming: extract plan from full reply
+            const result = await ApiService.sendOpenAIRequest(model, state.chatHistory);
+            if (result.error) throw new Error(result.error.message);
+            if (result.usage && result.usage.total_tokens) {
+                state.totalTokens += result.usage.total_tokens;
+            }
+            const reply = result.choices[0].message.content;
+            const planSteps = extractPlanFromText(reply);
+            if (planSteps.length > 0) setPlan(planSteps);
+            // Continue with normal handling
+            await handleNonStreamingResponse({ model, requestFn: async () => result, onToolCall: processToolCall });
         }
     }
 
-    // Helper: Handle streaming Gemini response
-    async function handleGeminiStreaming(model, message, aiMsgElement) {
-        await handleStreamingResponse({ model, aiMsgElement, streamFn: ApiService.streamGeminiRequest, onToolCall: processToolCall });
-    }
-
-    // Helper: Handle non-streaming Gemini response
-    async function handleGeminiNonStreaming(model, message) {
-        try {
+    // Helper: handleGeminiMessage with plan extraction
+    async function handleGeminiMessageWithPlan(model, message) {
+        state.chatHistory.push({ role: 'user', content: message });
+        if (state.settings.streaming) {
+            const aiMsgElement = UIController.createEmptyAIMessage();
+            let firstPlanExtracted = false;
+            await handleStreamingResponse({
+                model,
+                aiMsgElement,
+                streamFn: ApiService.streamGeminiRequest,
+                onToolCall: processToolCall,
+                onChunk: (chunk, fullText) => {
+                    if (!firstPlanExtracted && fullText) {
+                        const planSteps = extractPlanFromText(fullText);
+                        if (planSteps.length > 0) {
+                            setPlan(planSteps);
+                            firstPlanExtracted = true;
+                        }
+                    }
+                }
+            });
+        } else {
+            // Non-streaming: extract plan from full reply
             const session = ApiService.createGeminiSession(model);
             const result = await session.sendMessage(message, state.chatHistory);
             if (result.usageMetadata && typeof result.usageMetadata.totalTokenCount === 'number') {
@@ -593,44 +637,9 @@ Answer: [your final, concise answer based on the reasoning above]`;
             } else if (candidate.content.text) {
                 textResponse = candidate.content.text;
             }
-            const toolCall = extractToolCall(textResponse);
-            if (toolCall && toolCall.tool && toolCall.arguments) {
-                await processToolCall(toolCall);
-                return;
-            }
-            if (state.settings.enableCoT) {
-                const processed = parseCoTResponse(textResponse);
-                if (processed.thinking) {
-                    debugLog('AI Thinking:', processed.thinking);
-                }
-                state.chatHistory.push({ role: 'assistant', content: textResponse });
-                const displayText = formatResponseForDisplay(processed);
-                if (isPlanMessage(displayText)) {
-                    UIController.addMessage('ai', displayText, 'plan');
-                } else {
-                    UIController.addMessage('ai', displayText);
-                }
-            } else {
-                state.chatHistory.push({ role: 'assistant', content: textResponse });
-                UIController.addMessage('ai', textResponse);
-            }
-        } catch (err) {
-            throw err;
-        } finally {
-            // Always re-enable message input
-            UIController.hideSpinner();
-            UIController.clearStatus();
-            UIController.enableMessageInput && UIController.enableMessageInput();
-        }
-    }
-
-    // Refactored handleGeminiMessage
-    async function handleGeminiMessage(model, message) {
-        state.chatHistory.push({ role: 'user', content: message });
-        if (state.settings.streaming) {
-            const aiMsgElement = UIController.createEmptyAIMessage();
-            await handleGeminiStreaming(model, message, aiMsgElement);
-        } else {
+            const planSteps = extractPlanFromText(textResponse);
+            if (planSteps.length > 0) setPlan(planSteps);
+            // Continue with normal handling
             await handleGeminiNonStreaming(model, message);
         }
     }
