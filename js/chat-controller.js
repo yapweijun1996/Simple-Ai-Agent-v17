@@ -36,8 +36,18 @@ const ChatController = (function() {
         }
     }
 
+    // Pretty-print utility for debug logs
+    function pretty(obj) {
+        try {
+            return JSON.stringify(obj, null, 2);
+        } catch {
+            return String(obj);
+        }
+    }
+
     // Add helper to robustly extract JSON tool calls using delimiters and schema validation
     function extractToolCall(text) {
+        debugLog('[extractToolCall] Raw text:', text);
         // Prefer tool call wrapped in unique delimiters
         const match = text.match(/\[\[TOOLCALL\]\]([\s\S]*?)\[\[\/TOOLCALL\]\]/);
         let jsonStr = null;
@@ -404,7 +414,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
     async function sendMessage() {
         const message = UIController.getUserInput();
         if (!isValidUserInput(message)) return;
-        debugLog("User query:", message);
+        debugLog('[sendMessage] User query:', message);
         state.originalUserQuestion = message;
         state.toolWorkflowActive = true;
 
@@ -427,7 +437,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
         try {
             if (selectedModel.startsWith('gpt')) {
                 state.chatHistory.push({ role: 'user', content: enhancedMessage });
-                debugLog("Sent enhanced message to GPT:", enhancedMessage);
+                debugLog('[sendMessage] Sent enhanced message to GPT:', enhancedMessage);
                 // Intercept the first AI response to extract plan
                 await handleOpenAIMessageWithPlan(selectedModel, enhancedMessage);
             } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
@@ -437,6 +447,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 await handleGeminiMessageWithPlan(selectedModel, enhancedMessage);
             }
         } catch (error) {
+            debugLog('[sendMessage] Error:', error);
             let userMessage = 'Error: ' + error.message;
             if (error.message && error.message.includes('Failed to fetch')) {
                 userMessage += '\nPossible causes: network issue, CORS restriction, invalid API key, the API endpoint is down, or a proxy server is blocked.';
@@ -598,8 +609,10 @@ If you understand, follow these instructions for every relevant question. Do NOT
 
     // New: Execute plan steps in order, updating the planning bar and reasoning
     async function executePlanSteps(model, planSteps) {
+        debugLog('[Plan] Detected plan steps:', planSteps);
         setPlan(planSteps);
         for (let idx = 0; idx < planSteps.length; idx++) {
+            debugLog(`[Plan] Starting step ${idx + 1}:`, planSteps[idx]);
             // Mark current step as in-progress
             updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS);
             // Generate reasoning and/or take action for this step
@@ -635,7 +648,9 @@ If you understand, follow these instructions for every relevant question. Do NOT
             }
             // Mark step as done
             updatePlanStepStatus(idx, PLAN_STATUS.DONE, '', processed.thinking);
+            debugLog(`[Plan] Completed step ${idx + 1}`);
         }
+        debugLog('[Plan] All steps complete. Synthesizing final answer.');
         // After all steps, synthesize and present the final answer
         await synthesizeFinalAnswer('');
     }
@@ -742,7 +757,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
 
     // Enhanced processToolCall using registry and validation
     async function processToolCall(call) {
-        debugLog('processToolCall', call);
+        debugLog('[ToolCall] Received:', pretty(call));
         if (!state.toolWorkflowActive) return;
         const { tool, arguments: args, skipContinue } = call;
         // Tool call loop protection
@@ -754,12 +769,20 @@ If you understand, follow these instructions for every relevant question. Do NOT
             state.lastToolCallCount = 1;
         }
         if (state.lastToolCallCount > state.MAX_TOOL_CALL_REPEAT) {
+            debugLog('[ToolCall] Loop detected, aborting.');
             UIController.addMessage('ai', `Error: Tool call loop detected. The same tool call has been made more than ${state.MAX_TOOL_CALL_REPEAT} times in a row. Stopping to prevent infinite loop.`);
             return;
         }
         // Log tool call
         state.toolCallHistory.push({ tool, args, timestamp: new Date().toISOString() });
-        await toolHandlers[tool](args);
+        try {
+            debugLog(`[ToolCall] Executing handler for: ${tool}`, pretty(args));
+            await toolHandlers[tool](args);
+            debugLog(`[ToolCall] Handler for ${tool} completed.`);
+        } catch (err) {
+            debugLog(`[ToolCall] Error in handler for ${tool}:`, err);
+            UIController.addMessage('ai', `Tool call failed: ${err && err.message ? err.message : err}`);
+        }
         // Only continue reasoning if the last AI reply was NOT a tool call
         if (!skipContinue) {
             const lastEntry = state.chatHistory[state.chatHistory.length - 1];
@@ -1049,10 +1072,14 @@ If you understand, follow these instructions for every relevant question. Do NOT
 
     // Add synthesizeFinalAnswer helper
     async function synthesizeFinalAnswer(summaries) {
-        debugLog('synthesizeFinalAnswer', summaries);
-        if (!summaries || !state.originalUserQuestion) return;
+        debugLog('[synthesizeFinalAnswer] summaries:', summaries);
+        if (!summaries || !state.originalUserQuestion) {
+            debugLog('[synthesizeFinalAnswer] No summaries or original question, aborting.');
+            return;
+        }
         const selectedModel = SettingsController.getSettings().selectedModel;
         const prompt = `Based on the following summaries, provide a final, concise answer to the original question.\n\nSummaries:\n${summaries}\n\nOriginal question: ${state.originalUserQuestion}`;
+        debugLog('[synthesizeFinalAnswer] Prompt:', prompt);
         try {
             let finalAnswer = '';
             if (selectedModel.startsWith('gpt')) {
@@ -1075,15 +1102,17 @@ If you understand, follow these instructions for every relevant question. Do NOT
                     finalAnswer = candidate.content.text.trim();
                 }
             }
-            debugLog({ step: 'synthesizeFinalAnswer', finalAnswer });
+            debugLog('[synthesizeFinalAnswer] Final answer:', finalAnswer);
             if (finalAnswer && finalAnswer.trim()) {
                 UIController.addMessage('ai', `Final Answer:\n${finalAnswer}`);
             } else {
+                debugLog('[synthesizeFinalAnswer] No final answer generated, using fallback.');
                 UIController.addMessage('ai', 'No final answer was generated by the agent.');
             }
             // Stop tool workflow after final answer
             state.toolWorkflowActive = false;
         } catch (err) {
+            debugLog('[synthesizeFinalAnswer] Error:', err);
             UIController.addMessage('ai', `Final answer synthesis failed. Error: ${err && err.message ? err.message : err}`);
             state.toolWorkflowActive = false;
         }
