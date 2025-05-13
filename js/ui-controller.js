@@ -594,7 +594,8 @@ const UIController = (function() {
         if (sendButton) sendButton.disabled = messageInput.value.trim().length === 0;
     }
 
-    // --- Planning Bar Logic ---
+    // --- Planning Bar Logic (Improved) ---
+    let planningBarCollapsed = false;
     function renderPlanningBar(planSteps) {
         const bar = document.getElementById('planning-bar');
         if (!bar) return;
@@ -604,35 +605,83 @@ const UIController = (function() {
             return;
         }
         bar.style.display = 'block';
-        // Progress bar
+        bar.setAttribute('role', 'region');
+        bar.setAttribute('aria-label', 'Plan Progress');
+        // Collapsible control
+        const collapseBtn = document.createElement('button');
+        collapseBtn.className = 'planning-bar__collapse';
+        collapseBtn.innerHTML = planningBarCollapsed ? 'Show Plan ▲' : 'Hide Plan ▼';
+        collapseBtn.onclick = () => {
+            planningBarCollapsed = !planningBarCollapsed;
+            renderPlanningBar(planSteps);
+        };
+        bar.appendChild(collapseBtn);
+        if (planningBarCollapsed) {
+            return;
+        }
+        // Progress bar with animation
         const doneCount = planSteps.filter(s => s.status === 'done').length;
         const progress = planSteps.length ? Math.round((doneCount / planSteps.length) * 100) : 0;
         const progressBar = document.createElement('div');
         progressBar.className = 'planning-progress-bar';
-        progressBar.innerHTML = `<div class="planning-progress-bar__fill" style="width:${progress}%"></div>`;
+        progressBar.innerHTML = `<div class="planning-progress-bar__fill" style="width:${progress}%; transition: width 0.5s;"></div>`;
         bar.appendChild(progressBar);
         // Steps
         planSteps.forEach((step, idx) => {
             const stepDiv = document.createElement('div');
             stepDiv.className = 'planning-step planning-step--' + step.status;
             if (step.status === 'in-progress') stepDiv.classList.add('current');
-            let icon = '⏳';
-            if (step.status === 'done') icon = '✅';
-            else if (step.status === 'in-progress') icon = '🔄';
-            else if (step.status === 'error') icon = '❌';
-            stepDiv.innerHTML = `<span class=\"planning-step__icon\">${icon}</span> <span class=\"planning-step__text\">${Utils.escapeHtml(step.text)}</span>`;
+            let icon = '⏳', statusLabel = 'Pending';
+            if (step.status === 'done') { icon = '✅'; statusLabel = 'Done'; }
+            else if (step.status === 'in-progress') { icon = '🔄'; statusLabel = 'In Progress'; }
+            else if (step.status === 'error') { icon = '❌'; statusLabel = 'Error'; }
+            // Details indicator
+            let detailsIndicator = '';
+            if (step.details) {
+                detailsIndicator = '<span class="planning-step__details-indicator" title="Has details">🛈</span>';
+            }
+            stepDiv.innerHTML = `<span class="planning-step__icon">${icon}</span> <span class="planning-step__text">${Utils.escapeHtml(step.text)}</span> <span class="planning-step__status-label">${statusLabel}</span> ${detailsIndicator}`;
+            // Timestamps/duration (optional, if present)
+            if (step.startedAt || step.endedAt) {
+                const tsDiv = document.createElement('div');
+                tsDiv.className = 'planning-step__timestamps';
+                let tsText = '';
+                if (step.startedAt) tsText += `Started: ${new Date(step.startedAt).toLocaleTimeString()} `;
+                if (step.endedAt) tsText += `Ended: ${new Date(step.endedAt).toLocaleTimeString()}`;
+                if (step.startedAt && step.endedAt) {
+                    const duration = Math.round((step.endedAt - step.startedAt) / 1000);
+                    tsText += ` (Duration: ${duration}s)`;
+                }
+                tsDiv.textContent = tsText;
+                stepDiv.appendChild(tsDiv);
+            }
+            // Details preview on hover, expand/collapse on click
             if (step.details) {
                 const detailsDiv = document.createElement('div');
                 detailsDiv.className = 'planning-step__details';
                 detailsDiv.textContent = step.details;
                 stepDiv.appendChild(detailsDiv);
+                stepDiv.title = step.details;
             }
-            // Expand/collapse on click
             stepDiv.onclick = () => {
                 stepDiv.classList.toggle('expanded');
             };
             bar.appendChild(stepDiv);
         });
+        // Plan summary
+        const allDone = planSteps.every(s => s.status === 'done');
+        const anyError = planSteps.some(s => s.status === 'error');
+        const summaryDiv = document.createElement('div');
+        summaryDiv.className = 'planning-bar__summary';
+        if (allDone) {
+            summaryDiv.innerHTML = '<span class="planning-bar__summary--done">Plan complete! 🎉</span>';
+        } else if (anyError) {
+            const firstErrorIdx = planSteps.findIndex(s => s.status === 'error');
+            summaryDiv.innerHTML = `<span class="planning-bar__summary--error">Plan failed at step ${firstErrorIdx + 1}.</span>`;
+        } else {
+            summaryDiv.innerHTML = `<span class="planning-bar__summary--progress">${doneCount} of ${planSteps.length} steps done.</span>`;
+        }
+        bar.appendChild(summaryDiv);
     }
     function updatePlanningBar(planSteps) {
         renderPlanningBar(planSteps);
