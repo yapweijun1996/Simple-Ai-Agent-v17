@@ -56,16 +56,9 @@ const ChatController = (function() {
         } else {
             // Fallback: try to extract the first JSON object in the text
             const jsonMatch = text.match(/\{[\s\S]*?\}/);
-            if (jsonMatch && jsonMatch[0].trim().startsWith('{"tool":')) {
+            if (jsonMatch) {
                 jsonStr = jsonMatch[0];
-                // Attempt to auto-close if braces are unbalanced
-                const openCount = (jsonStr.match(/\{/g) || []).length;
-                const closeCount = (jsonStr.match(/\}/g) || []).length;
-                if (openCount > closeCount) {
-                    jsonStr += '}'.repeat(openCount - closeCount);
-                }
             } else {
-                // Not a tool call, skip
                 return null;
             }
         }
@@ -74,14 +67,20 @@ const ChatController = (function() {
         try {
             obj = JSON.parse(jsonStr);
         } catch (err) {
-            // Only log if debug is enabled
             if (state.settings && state.settings.debug) {
                 console.warn('Tool JSON parse error:', err, 'from', jsonStr);
             }
             return null;
         }
-        if (typeof obj === 'object' && typeof obj.tool === 'string' && typeof obj.arguments === 'object') {
+        // Accept alternative keys and normalize
+        if (obj.tool && typeof obj.arguments === 'object') {
             return obj;
+        }
+        if (obj.tool_call && obj.tool_call.tool && obj.query) {
+            return { tool: obj.tool_call.tool, arguments: { query: obj.query } };
+        }
+        if (obj.tool_code && obj.url) {
+            return { tool: obj.tool_code, arguments: { url: obj.url } };
         }
         return null;
     }
