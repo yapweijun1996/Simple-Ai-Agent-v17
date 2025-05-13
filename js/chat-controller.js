@@ -29,6 +29,11 @@ const ChatController = (function() {
         planStatus: 'idle'
     };
 
+    // Input validation: returns true if input is a non-empty string after trimming
+    function isValidUserInput(input) {
+        return typeof input === 'string' && input.trim().length > 0;
+    }
+
     // Add helper to robustly extract JSON tool calls using delimiters and schema validation
     function extractToolCall(text) {
         Utils.debugLog('[extractToolCall] Raw text:', text);
@@ -249,7 +254,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
         UIController.addMessage('user', message);
         UIController.clearUserInput();
 
-        const enhancedMessage = prepareMessage(message);
+        const enhancedMessage = message;
         const currentSettings = SettingsController.getSettings();
         const selectedModel = currentSettings.selectedModel;
 
