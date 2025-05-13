@@ -1581,9 +1581,12 @@ body:not(.light-mode) .chat-app__message.plan-message {
 
 /* --- Planning Bar Styles --- */
 .planning-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 0 0 8px 0;
   background: #23272e;
   border-radius: 8px;
-  margin: 12px 16px 8px 16px;
   padding: 10px 16px;
   box-shadow: 0 2px 8px #0002;
   display: flex;
@@ -1714,4 +1717,9 @@ body:not(.light-mode) .chat-app__message.plan-message {
   color: #888;
   margin-left: 2.5em;
   margin-top: 2px;
+}
+@media (max-width: 600px) {
+  .planning-bar {
+    top: 0;
+  }
 } 
