@@ -1265,6 +1265,122 @@ If you understand, follow these instructions for every relevant question. Do NOT
         await handleGeminiMessageWithPlan(model, message);
     }
 
+    // === Two-Agent (A→A) Orchestrator Implementation ===
+
+    /**
+     * Orchestrator: Runs the two-agent workflow (Planner + Executor)
+     * @param {string} userQuery
+     */
+    async function runAgentWorkflow(userQuery) {
+        // 1. Planning phase
+        const plan = await generatePlan(userQuery);
+        if (!Array.isArray(plan) || plan.length === 0) {
+            UIController.addMessage('ai', 'Planning agent failed to generate a valid plan.');
+            return;
+        }
+        displayPlanningBar(plan);
+
+        // 2. Execution phase
+        let context = { userQuery };
+        let stepResults = [];
+        for (let i = 0; i < plan.length; i++) {
+            markStepInProgress(i);
+            const result = await executePlanStep(plan[i], context);
+            stepResults.push(result);
+            displayStepSummary(i, result.summary || result.error);
+            markStepDone(i);
+            // Optionally, update context with tool results for next steps
+            if (result.toolResult) context[`step${i}_result`] = result.toolResult;
+        }
+
+        // 3. Final synthesis
+        const finalPrompt = `\nGiven the user question: "${userQuery}" and the following step results: ${JSON.stringify(stepResults)}, provide a final, concise answer.`;
+        const finalAnswer = await callLLM(finalPrompt, context);
+        displayFinalAnswer(finalAnswer);
+    }
+
+    /**
+     * Agent A: Planning agent
+     * @param {string} userQuery
+     * @returns {Promise<string[]>}
+     */
+    async function generatePlan(userQuery) {
+        const prompt = `\nGiven the user question: "${userQuery}", output a numbered list of actionable steps to answer it. Each step should be specific and, if possible, correspond to a tool call or reasoning action.`;
+        const planText = await callLLM(prompt);
+        return extractPlanFromText(planText);
+    }
+
+    /**
+     * Agent B: Action/execution agent
+     * @param {string} step
+     * @param {object} context
+     * @returns {Promise<object>}
+     */
+    async function executePlanStep(step, context) {
+        const prompt = `\nGiven the step: "${step}", output ONLY a tool call JSON if a tool is needed (as per the system instructions). If no tool is needed, reply with 'NO_TOOL_NEEDED' and a brief reason.`;
+        const response = await callLLM(prompt, context);
+        const toolCall = extractToolCall(response);
+        if (toolCall) {
+            const toolResult = await processToolCall(toolCall);
+            // Optionally, ask for a summary
+            const summaryPrompt = `\nThe tool call has been executed. Here is the result: ${toolResult}. Please summarize what was learned and provide the next reasoning or answer for this step.`;
+            const summary = await callLLM(summaryPrompt, context);
+            return { toolCall, toolResult, summary };
+        } else if (response && response.includes('NO_TOOL_NEEDED')) {
+            return { summary: response };
+        } else {
+            // Optionally, retry or mark as failed
+            return { error: 'No valid tool call or NO_TOOL_NEEDED detected.' };
+        }
+    }
+
+    // === UI Integration Stubs (replace with your actual UI functions) ===
+    function displayPlanningBar(plan) {
+        UIController.renderPlanningBar(plan.map((text, idx) => ({ text, status: idx === 0 ? 'in-progress' : 'pending', details: '', reasoning: '' })));
+    }
+    function markStepInProgress(idx) {
+        // Update planning bar UI to show step idx as in-progress
+        // (You may want to update state.currentPlan here as well)
+    }
+    function displayStepSummary(idx, summary) {
+        // Show summary or error for step idx in the UI
+        UIController.addMessage('ai', `Step ${idx + 1} summary: ${summary}`);
+    }
+    function markStepDone(idx) {
+        // Update planning bar UI to show step idx as done
+    }
+    function displayFinalAnswer(finalAnswer) {
+        UIController.addMessage('ai', `Final Answer: ${finalAnswer}`);
+    }
+
+    // === LLM API Wrapper Stub ===
+    async function callLLM(prompt, context) {
+        // Replace with your actual LLM API call logic (OpenAI, Gemini, etc.)
+        // For now, fallback to existing OpenAI/Gemini logic
+        const selectedModel = SettingsController.getSettings().selectedModel;
+        if (selectedModel.startsWith('gpt')) {
+            const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                { role: 'system', content: 'You are an AI assistant.' },
+                { role: 'user', content: prompt }
+            ]);
+            return res.choices[0].message.content;
+        } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
+            const session = ApiService.createGeminiSession(selectedModel);
+            const chatHistory = [
+                { role: 'system', content: 'You are an AI assistant.' },
+                { role: 'user', content: prompt }
+            ];
+            const result = await session.sendMessage(prompt, chatHistory);
+            const candidate = result.candidates[0];
+            if (candidate.content.parts) {
+                return candidate.content.parts.map(p => p.text).join(' ');
+            } else if (candidate.content.text) {
+                return candidate.content.text;
+            }
+        }
+        return '';
+    }
+
     // Public API
     return {
         init,
