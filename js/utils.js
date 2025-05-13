@@ -317,6 +317,44 @@ const Utils = (function() {
         throw lastError;
     }
 
+    /**
+     * Debug logging helper
+     * @param {...any} args
+     */
+    function debugLog(...args) {
+        if (typeof window !== 'undefined' && window.ChatController && window.ChatController.getSettings && window.ChatController.getSettings().debug) {
+            console.log('[AI-DEBUG]', ...args);
+        }
+    }
+
+    /**
+     * Pretty-print utility for debug logs
+     * @param {any} obj
+     * @returns {string}
+     */
+    function pretty(obj) {
+        try {
+            return JSON.stringify(obj, null, 2);
+        } catch {
+            return String(obj);
+        }
+    }
+
+    /**
+     * Sanitizes a JSON string for safe parsing
+     * @param {string} jsonStr
+     * @returns {string}
+     */
+    function sanitizeJsonString(jsonStr) {
+        // Remove trailing commas before } or ]
+        jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+        // Replace single quotes with double quotes
+        jsonStr = jsonStr.replace(/'/g, '"');
+        // Remove newlines inside string values
+        jsonStr = jsonStr.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/gs, (m) => m.replace(/\n/g, ''));
+        return jsonStr;
+    }
+
     // Public API
     return {
         decrypt,
@@ -335,6 +373,9 @@ const Utils = (function() {
         escapeHtml,
         fetchWithTimeout,
         fetchWithRetry,
-        fetchWithProxyRetry
+        fetchWithProxyRetry,
+        debugLog,
+        pretty,
+        sanitizeJsonString
     };
 })(); 

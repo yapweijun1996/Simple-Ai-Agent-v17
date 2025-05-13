@@ -29,25 +29,9 @@ const ChatController = (function() {
         planStatus: 'idle'
     };
 
-    // Debug logging helper
-    function debugLog(...args) {
-        if (state.settings && state.settings.debug) {
-            console.log('[AI-DEBUG]', ...args);
-        }
-    }
-
-    // Pretty-print utility for debug logs
-    function pretty(obj) {
-        try {
-            return JSON.stringify(obj, null, 2);
-        } catch {
-            return String(obj);
-        }
-    }
-
     // Add helper to robustly extract JSON tool calls using delimiters and schema validation
     function extractToolCall(text) {
-        debugLog('[extractToolCall] Raw text:', text);
+        Utils.debugLog('[extractToolCall] Raw text:', text);
         // Remove code block markers (```json, ```tool_code, or ```)
         text = text.replace(/```(?:json|tool_code)?/gi, '').replace(/```/g, '').trim();
         // Remove comments (// ... or /* ... */)
@@ -90,7 +74,7 @@ const ChatController = (function() {
         }
         if (!jsonStr) return null;
         jsonStr = jsonStr.trim();
-        debugLog('[extractToolCall] Preprocessed JSON:', jsonStr);
+        Utils.debugLog('[extractToolCall] Preprocessed JSON:', jsonStr);
         // Try to parse JSON, fallback to forgiving parser if needed
         let obj;
         try {
@@ -99,8 +83,8 @@ const ChatController = (function() {
             try {
                 obj = JSON.parse(sanitized);
             } catch (err) {
-                debugLog('Tool JSON parse error:', err, 'from', jsonStr);
-                debugLog('Tool JSON parse error (sanitized):', err, 'from', sanitized);
+                Utils.debugLog('Tool JSON parse error:', err, 'from', jsonStr);
+                Utils.debugLog('Tool JSON parse error (sanitized):', err, 'from', sanitized);
                 // Fallback: regex for tool, arguments, query, url, action
                 const fallbackPattern = /(tool|action)\s*[:=]\s*['"]?(\w+)['"]?[,\s]+(arguments|query|url|queries)\s*[:=]\s*([\{\[].*[\}\]]|['"].*?['"])/s;
                 const m = jsonStr.match(fallbackPattern);
@@ -120,7 +104,7 @@ const ChatController = (function() {
                 return null;
             }
         } catch (err) {
-            debugLog('Tool JSON parse error (outer):', err, 'from', jsonStr);
+            Utils.debugLog('Tool JSON parse error (outer):', err, 'from', jsonStr);
             UIController.addMessage('ai', 'Error: Could not parse tool call JSON. Please check the tool call format.');
             return null;
         }
@@ -175,162 +159,9 @@ const ChatController = (function() {
 Begin Reasoning Now:
 `;
 
-    // Tool handler registry
-    const toolHandlers = {
-        web_search: async function(args) {
-            debugLog('Tool: web_search', args);
-            if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
-                UIController.addMessage('ai', 'Error: Invalid web_search query.');
-                return;
-            }
-            const engine = args.engine || 'duckduckgo';
-            const userQuestion = state.originalUserQuestion || args.query;
-            let queriesTried = [args.query];
-            let allResults = [];
-            let lastResults = [];
-            let attempts = 0;
-            const MAX_ATTEMPTS = 3;
-            while (attempts < MAX_ATTEMPTS) {
-                UIController.showSpinner(`Searching (${engine}) for "${queriesTried[attempts]}"...`, getAgentDetails());
-                UIController.showStatus(`Searching (${engine}) for "${queriesTried[attempts]}"...`, getAgentDetails());
-                let results = [];
-                try {
-                    const streamed = [];
-                    results = await ToolsService.webSearch(queriesTried[attempts], (result) => {
-                        streamed.push(result);
-                        // Pass highlight flag if this index is in highlightedResultIndices
-                        const idx = streamed.length - 1;
-                        UIController.addSearchResult(result, (url) => {
-                            processToolCall({ tool: 'read_url', arguments: { url, start: 0, length: 1122 } });
-                        }, state.highlightedResultIndices.has(idx));
-                    }, engine);
-                    debugLog(`Web search results for query [${queriesTried[attempts]}]:`, results);
-                } catch (err) {
-                    UIController.hideSpinner();
-                    UIController.addMessage('ai', `Web search failed: ${err.message}`);
-                    state.chatHistory.push({ role: 'assistant', content: `Web search failed: ${err.message}` });
-                    break;
-                }
-                allResults = allResults.concat(results);
-                lastResults = results;
-                // If good results, break
-                if (results.length >= 3 || attempts === MAX_ATTEMPTS - 1) break;
-                // Ask AI for a better query
-                let betterQuery = null;
-                try {
-                    const selectedModel = SettingsController.getSettings().selectedModel;
-                    let aiReply = '';
-                    const prompt = `The initial web search for the user question did not yield enough relevant results.\n\nUser question: ${userQuestion}\nInitial query: ${queriesTried[attempts]}\nSearch results (titles and snippets):\n${results.map((r, i) => `${i+1}. ${r.title} - ${r.snippet}`).join('\n')}\n\nSuggest a better search query to find more relevant information. Reply with only the improved query, or repeat the previous query if no better query is possible.`;
-                    if (selectedModel.startsWith('gpt')) {
-                        const res = await ApiService.sendOpenAIRequest(selectedModel, [
-                            { role: 'system', content: 'You are an assistant that helps improve web search queries.' },
-                            { role: 'user', content: prompt }
-                        ]);
-                        aiReply = res.choices[0].message.content.trim();
-                    } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
-                        const session = ApiService.createGeminiSession(selectedModel);
-                        const chatHistory = [
-                            { role: 'system', content: 'You are an assistant that helps improve web search queries.' },
-                            { role: 'user', content: prompt }
-                        ];
-                        const result = await session.sendMessage(prompt, chatHistory);
-                        const candidate = result.candidates[0];
-                        if (candidate.content.parts) {
-                            aiReply = candidate.content.parts.map(p => p.text).join(' ').trim();
-                        } else if (candidate.content.text) {
-                            aiReply = candidate.content.text.trim();
-                        }
-                    }
-                    debugLog('AI suggested improved query:', aiReply);
-                    if (aiReply && !queriesTried.includes(aiReply)) {
-                        queriesTried.push(aiReply);
-                    } else {
-                        break; // No better query or repeated, stop
-                    }
-                } catch (err) {
-                    debugLog('Error getting improved query from AI:', err);
-                    break;
-                }
-                attempts++;
-            }
-            UIController.hideSpinner();
-            UIController.clearStatus();
-            if (!allResults.length) {
-                UIController.addMessage('ai', `No search results found for "${args.query}" after ${attempts+1} attempts.`);
-            }
-            // Remove duplicate results by URL
-            const uniqueResults = [];
-            const seenUrls = new Set();
-            debugLog({ step: 'deduplication', before: allResults });
-            for (const r of allResults) {
-                if (!seenUrls.has(r.url)) {
-                    uniqueResults.push(r);
-                    seenUrls.add(r.url);
-                }
-            }
-            debugLog({ step: 'deduplication', after: uniqueResults });
-            const plainTextResults = uniqueResults.map((r, i) => `${i+1}. ${r.title} (${r.url}) - ${r.snippet}`).join('\n');
-            state.chatHistory.push({ role: 'assistant', content: `Search results for "${args.query}" (total ${uniqueResults.length}):\n${plainTextResults}` });
-            state.lastSearchResults = uniqueResults;
-            debugLog({ step: 'suggestResultsToRead', results: uniqueResults });
-            // Prompt AI to suggest which results to read
-            await suggestResultsToRead(uniqueResults, args.query);
-        },
-        read_url: async function(args) {
-            debugLog('Tool: read_url', args);
-            if (!args.url || typeof args.url !== 'string' || !/^https?:\/\//.test(args.url)) {
-                UIController.addMessage('ai', 'Error: Invalid read_url argument.');
-                return;
-            }
-            UIController.showSpinner(`Reading content from ${args.url}...`, getAgentDetails());
-            UIController.showStatus(`Reading content from ${args.url}...`, getAgentDetails());
-            try {
-                const result = await ToolsService.readUrl(args.url);
-                const start = (typeof args.start === 'number' && args.start >= 0) ? args.start : 0;
-                const length = (typeof args.length === 'number' && args.length > 0) ? args.length : 1122;
-                const snippet = String(result).slice(start, start + length);
-                const hasMore = (start + length) < String(result).length;
-                UIController.addReadResult(args.url, snippet, hasMore);
-                const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
-                state.chatHistory.push({ role: 'assistant', content: plainTextSnippet });
-                // Collect snippets for summarization
-                if (snippet) {
-                    if (!state.readSnippets) state.readSnippets = [];
-                    state.readSnippets.push(snippet);
-                }
-                // (Manual summarization removed: summarization now only happens in auto-read workflow)
-            } catch (err) {
-                UIController.hideSpinner();
-                UIController.addMessage('ai', `Read URL failed: ${err.message}`);
-                state.chatHistory.push({ role: 'assistant', content: `Read URL failed: ${err.message}` });
-            }
-            UIController.hideSpinner();
-            UIController.clearStatus();
-        },
-        instant_answer: async function(args) {
-            debugLog('Tool: instant_answer', args);
-            if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
-                UIController.addMessage('ai', 'Error: Invalid instant_answer query.');
-                return;
-            }
-            UIController.showStatus(`Retrieving instant answer for "${args.query}"...`, getAgentDetails());
-            try {
-                const result = await ToolsService.instantAnswer(args.query);
-                const text = JSON.stringify(result, null, 2);
-                UIController.addMessage('ai', text);
-                state.chatHistory.push({ role: 'assistant', content: text });
-            } catch (err) {
-                UIController.clearStatus();
-                UIController.addMessage('ai', `Instant answer failed: ${err.message}`);
-                state.chatHistory.push({ role: 'assistant', content: `Instant answer failed: ${err.message}` });
-            }
-            UIController.clearStatus();
-        }
-    };
-
     /**
      * Initializes the chat controller
-     * @param {Object} initialSettings - Initial settings for the chat
+     * @param {Object} initialSettings - Optional initial settings
      */
     function init(initialSettings) {
         // Reset and seed chatHistory with system tool instructions
@@ -375,8 +206,8 @@ If you understand, follow these instructions for every relevant question. Do NOT
     }
 
     /**
-     * Updates the settings
-     * @param {Object} newSettings - The new settings
+     * Updates the chat settings
+     * @param {Object} newSettings - The new settings to apply
      */
     function updateSettings(newSettings) {
         state.settings = { ...state.settings, ...newSettings };
@@ -393,7 +224,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
     }
 
     /**
-     * Gets the current settings
+     * Gets the current chat settings
      * @returns {Object} - The current settings
      */
     function getSettings() {
@@ -401,102 +232,17 @@ If you understand, follow these instructions for every relevant question. Do NOT
     }
 
     /**
-     * Generates Chain of Thought prompting instructions
-     * @param {string} message - The user message
-     * @returns {string} - The CoT enhanced message
+     * Sends a message from the user and processes the response
+     * Handles both streaming and non-streaming models
+     * @returns {Promise<void>}
      */
-    function enhanceWithCoT(message) {
-        return `Please first output a numbered plan for how you will answer this question (as a numbered list at the top), then proceed step by step. ${message}\n\nI'd like you to use Chain of Thought reasoning. Please think step-by-step before providing your final answer. Format your response like this:\nThinking: [detailed reasoning process, exploring different angles and considerations]\nAnswer: [your final, concise answer based on the reasoning above]`;
-    }
-
-    // 2. Merge processCoTResponse and processPartialCoTResponse into parseCoTResponse
-    function parseCoTResponse(response, isPartial = false) {
-        const thinkingMatch = response.match(/Thinking:(.*?)(?=Answer:|$)/s);
-        const answerMatch = response.match(/Answer:(.*?)$/s);
-        if (thinkingMatch && answerMatch) {
-            state.lastThinkingContent = thinkingMatch[1].trim();
-            state.lastAnswerContent = answerMatch[1].trim();
-            return {
-                thinking: state.lastThinkingContent,
-                answer: state.lastAnswerContent,
-                hasStructuredResponse: true,
-                partial: isPartial,
-                stage: isPartial && !answerMatch[1].trim() ? 'thinking' : undefined
-            };
-        } else if (response.startsWith('Thinking:') && !response.includes('Answer:')) {
-            state.lastThinkingContent = response.replace(/^Thinking:/, '').trim();
-            return {
-                thinking: state.lastThinkingContent,
-                answer: state.lastAnswerContent,
-                hasStructuredResponse: true,
-                partial: true,
-                stage: 'thinking'
-            };
-        } else if (response.includes('Thinking:') && !thinkingMatch) {
-            const thinking = response.replace(/^.*?Thinking:/s, 'Thinking:');
-            return {
-                thinking: thinking.replace(/^Thinking:/, '').trim(),
-                answer: '',
-                hasStructuredResponse: false,
-                partial: true
-            };
-        }
-        return {
-            thinking: '',
-            answer: response,
-            hasStructuredResponse: false
-        };
-    }
-
-    /**
-     * Formats the response for display based on settings
-     * @param {Object} processed - The processed response with thinking and answer
-     * @returns {string} - The formatted response for display
-     */
-    function formatResponseForDisplay(processed) {
-        if (!state.settings.enableCoT || !processed.hasStructuredResponse) {
-            return processed.answer;
-        }
-
-        // If showThinking is enabled, show both thinking and answer
-        if (state.settings.showThinking) {
-            if (processed.partial && processed.stage === 'thinking') {
-                return `Thinking: ${processed.thinking}`;
-            } else if (processed.partial) {
-                return processed.thinking; // Just the partial thinking
-            } else {
-                return `Thinking: ${processed.thinking}\n\nAnswer: ${processed.answer}`;
-            }
-        } else {
-            // Otherwise just show the answer (or thinking indicator if answer isn't ready)
-            return processed.answer || '🤔 Thinking...';
-        }
-    }
-
-    // Helper: Validate user input
-    function isValidUserInput(message) {
-        return typeof message === 'string' && message.trim().length > 0;
-    }
-
-    // Helper: Set UI input state (enabled/disabled)
-    function setInputState(enabled) {
-        document.getElementById('message-input').disabled = !enabled;
-        document.getElementById('send-button').disabled = !enabled;
-    }
-
-    // Helper: Prepare message for sending (CoT, etc.)
-    function prepareMessage(message) {
-        return state.settings.enableCoT ? enhanceWithCoT(message) : message;
-    }
-
-    // Refactored sendMessage
     async function sendMessage() {
         const message = UIController.getUserInput();
         if (!isValidUserInput(message)) return;
-        debugLog('[sendMessage] User query:', message);
+        Utils.debugLog('[sendMessage] User query:', message);
         state.originalUserQuestion = message;
         state.toolWorkflowActive = true;
-        debugLog('[ToolWorkflow] Activated (true) at start of sendMessage');
+        Utils.debugLog('[ToolWorkflow] Activated (true) at start of sendMessage');
         state.lastThinkingContent = '';
         state.lastAnswerContent = '';
 
@@ -510,7 +256,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
         try {
             if (selectedModel.startsWith('gpt')) {
                 state.chatHistory.push({ role: 'user', content: enhancedMessage });
-                debugLog('[sendMessage] Sent enhanced message to GPT:', enhancedMessage);
+                Utils.debugLog('[sendMessage] Sent enhanced message to GPT:', enhancedMessage);
                 // Intercept the first AI response to extract plan
                 await handleOpenAIMessageWithPlan(selectedModel, enhancedMessage);
             } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
@@ -520,7 +266,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 await handleGeminiMessageWithPlan(selectedModel, enhancedMessage);
             }
         } catch (error) {
-            debugLog('[sendMessage] Error:', error);
+            Utils.debugLog('[sendMessage] Error:', error);
             let userMessage = 'Error: ' + error.message;
             if (error.message && error.message.includes('Failed to fetch')) {
                 userMessage += '\nPossible causes: network issue, CORS restriction, invalid API key, the API endpoint is down, or a proxy server is blocked.';
@@ -590,13 +336,13 @@ If you understand, follow these instructions for every relevant question. Do NOT
             }
             // If tool call extraction failed but the response looks like a tool call, log and show error
             if (!toolCall && typeof fullReply === 'string' && fullReply.includes('{"tool":')) {
-                debugLog('[ToolCall] Tool call JSON detected in response but failed to parse:', fullReply);
+                Utils.debugLog('[ToolCall] Tool call JSON detected in response but failed to parse:', fullReply);
                 UIController.addMessage('ai', 'Error: Tool call detected in agent response but could not be parsed. Please check the tool call format or delimiters.');
             }
             if (state.settings.enableCoT) {
                 const processed = parseCoTResponse(fullReply);
                 if (processed.thinking) {
-                    debugLog('AI Thinking:', processed.thinking);
+                    Utils.debugLog('AI Thinking:', processed.thinking);
                 }
                 const displayText = formatResponseForDisplay(processed);
                 if (state.currentPlan && state.currentPlan.length > 0) {
@@ -648,13 +394,13 @@ If you understand, follow these instructions for every relevant question. Do NOT
             }
             // If tool call extraction failed but the response looks like a tool call, log and show error
             if (!toolCall && typeof reply === 'string' && reply.includes('{"tool":')) {
-                debugLog('[ToolCall] Tool call JSON detected in response but failed to parse:', reply);
+                Utils.debugLog('[ToolCall] Tool call JSON detected in response but failed to parse:', reply);
                 UIController.addMessage('ai', 'Error: Tool call detected in agent response but could not be parsed. Please check the tool call format or delimiters.');
             }
             if (state.settings.enableCoT) {
                 const processed = parseCoTResponse(reply);
                 if (processed.thinking) {
-                    debugLog('AI Thinking:', processed.thinking);
+                    Utils.debugLog('AI Thinking:', processed.thinking);
                 }
                 // Mark current step as done and advance if in-progress and 'Answer:' is present
                 if (reply.includes('Answer:') && state.currentPlan && state.currentPlan.length > 0) {
@@ -692,12 +438,12 @@ If you understand, follow these instructions for every relevant question. Do NOT
 
     // New: Execute plan steps in order, updating the planning bar and reasoning
     async function executePlanSteps(model, planSteps) {
-        debugLog('[Plan] Detected plan steps:', planSteps);
+        Utils.debugLog('[Plan] Detected plan steps:', planSteps);
         setPlan(planSteps);
         for (let idx = 0; idx < planSteps.length; idx++) {
             await executeSinglePlanStep(model, planSteps[idx], idx);
         }
-        debugLog('[Plan] All steps complete. Synthesizing final answer.');
+        Utils.debugLog('[Plan] All steps complete. Synthesizing final answer.');
         // After all steps, synthesize and present the final answer
         let summary = '';
         if (state.readSnippets && state.readSnippets.length > 0) {
@@ -738,7 +484,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
         // Try to extract and execute a tool call from the reply
         const toolCall = extractToolCall(reply);
         if (toolCall && toolCall.tool && toolCall.arguments) {
-            debugLog('[Plan] Tool call detected in step:', toolCall);
+            Utils.debugLog('[Plan] Tool call detected in step:', toolCall);
             await processToolCall(toolCall);
             // Optionally, after tool execution, ask for a summary/answer for the step
             let followupReply = '';
@@ -776,7 +522,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
         }
         // Mark step as done
         updatePlanStepStatus(idx, PLAN_STATUS.DONE);
-        debugLog(`[Plan] Completed step ${idx + 1}`);
+        Utils.debugLog(`[Plan] Completed step ${idx + 1}`);
     }
 
     // Helper: Extract plan from text and set plan state
@@ -922,36 +668,17 @@ If you understand, follow these instructions for every relevant question. Do NOT
         state.toolCallHistory.push({ tool, args, timestamp: new Date().toISOString() });
     }
 
-    // Helper: Execute tool handler with error handling
-    async function executeToolHandler(tool, args) {
-        if (!toolHandlers[tool]) {
-            debugLog(`[ToolCall] No handler found for tool: ${tool}`);
-            UIController.addMessage('ai', `Error: No handler found for tool "${tool}". Please check tool configuration.`);
-            return false;
-        }
-        try {
-            debugLog(`[ToolCall] Executing handler for: ${tool}`, pretty(args));
-            await toolHandlers[tool](args);
-            debugLog(`[ToolCall] Handler for ${tool} completed.`);
-            return true;
-        } catch (err) {
-            debugLog(`[ToolCall] Error in handler for ${tool}:`, err);
-            UIController.addMessage('ai', `Tool call failed: ${err && err.message ? err.message : err}`);
-            return false;
-        }
-    }
-
     /**
      * Processes a tool call, including loop protection, logging, handler execution, and workflow continuation.
      * @param {Object} call - The tool call object
      */
     async function processToolCall(call) {
-        debugLog('[ToolCall] Received:', pretty(call));
+        Utils.debugLog('[ToolCall] Received:', Utils.pretty(call));
         if (!state.toolWorkflowActive) return;
         const { tool, arguments: args, skipContinue } = call;
         // Tool call loop protection
         if (isToolCallLoop(tool, args)) {
-            debugLog('[ToolCall] Loop detected, aborting.');
+            Utils.debugLog('[ToolCall] Loop detected, aborting.');
             UIController.addMessage('ai', `Error: Tool call loop detected. The same tool call has been made more than ${state.MAX_TOOL_CALL_REPEAT} times in a row. Stopping to prevent infinite loop.`);
             return;
         }
@@ -1077,7 +804,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
 
     // Autonomous follow-up: after AI suggests which results to read, auto-read and summarize
     async function autoReadAndSummarizeFromSuggestion(aiReply) {
-        debugLog('autoReadAndSummarizeFromSuggestion', aiReply);
+        Utils.debugLog('autoReadAndSummarizeFromSuggestion', aiReply);
         if (state.autoReadInProgress) return; // Prevent overlap
         if (!state.lastSearchResults || !Array.isArray(state.lastSearchResults) || !state.lastSearchResults.length) return;
         // Parse numbers from AI reply (e.g., "3,5,7,9,10")
@@ -1089,7 +816,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
         state.highlightedResultIndices = new Set(nums.map(n => n - 1));
         // Map numbers to URLs (1-based index)
         const urlsToRead = nums.map(n => state.lastSearchResults[n-1]?.url).filter(Boolean);
-        debugLog({ step: 'autoReadAndSummarizeFromSuggestion', selectedUrls: urlsToRead });
+        Utils.debugLog({ step: 'autoReadAndSummarizeFromSuggestion', selectedUrls: urlsToRead });
         if (!urlsToRead.length) return;
         state.autoReadInProgress = true;
         try {
@@ -1107,7 +834,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
 
     // Suggestion logic: ask AI which results to read
     async function suggestResultsToRead(results, query) {
-        debugLog('suggestResultsToRead', { results, query });
+        Utils.debugLog('suggestResultsToRead', { results, query });
         if (!results || results.length === 0) return;
         const prompt = `Given these search results for the query: "${query}", which results (by number) are most relevant to read in detail?\n\n${results.map((r, i) => `${i+1}. ${r.title} - ${r.snippet}`).join('\n')}\n\nReply with a comma-separated list of result numbers.`;
         const selectedModel = SettingsController.getSettings().selectedModel;
@@ -1211,7 +938,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
      * @param {number} round - The current summarization round
      */
     async function summarizeSnippets(snippets = null, round = 1) {
-        debugLog('summarizeSnippets', { snippets, round });
+        Utils.debugLog('summarizeSnippets', { snippets, round });
         if (!snippets) snippets = state.readSnippets;
         if (!snippets.length) return;
         const selectedModel = SettingsController.getSettings().selectedModel;
@@ -1298,34 +1025,34 @@ If you understand, follow these instructions for every relevant question. Do NOT
      * @param {string} summaries - The summaries to use
      */
     async function synthesizeFinalAnswer(summaries) {
-        debugLog('[synthesizeFinalAnswer] summaries:', summaries);
+        Utils.debugLog('[synthesizeFinalAnswer] summaries:', summaries);
         if (!summaries || !state.originalUserQuestion) {
             UIController.addMessage('ai', 'Sorry, I could not generate a final answer. No relevant information was found during the research steps. Please try rephrasing your question or providing more details.');
             state.toolWorkflowActive = false;
-            debugLog('[ToolWorkflow] Deactivated (false) due to no relevant information');
+            Utils.debugLog('[ToolWorkflow] Deactivated (false) due to no relevant information');
             return;
         }
         const selectedModel = SettingsController.getSettings().selectedModel;
         const prompt = buildFinalAnswerPrompt(summaries, state.originalUserQuestion);
-        debugLog('[synthesizeFinalAnswer] Prompt:', prompt);
+        Utils.debugLog('[synthesizeFinalAnswer] Prompt:', prompt);
         try {
             const finalAnswer = await getFinalAnswerFromModel(selectedModel, prompt);
-            debugLog('[synthesizeFinalAnswer] Final answer:', finalAnswer);
+            Utils.debugLog('[synthesizeFinalAnswer] Final answer:', finalAnswer);
             if (finalAnswer && finalAnswer.trim()) {
                 UIController.addMessage('ai', `Final Answer:\n${finalAnswer}`);
             } else {
-                debugLog('[synthesizeFinalAnswer] No final answer generated, using fallback.');
+                Utils.debugLog('[synthesizeFinalAnswer] No final answer generated, using fallback.');
                 UIController.addMessage('ai', 'No final answer was generated by the agent.');
             }
             // Set toolWorkflowActive to false after final answer is synthesized
             state.toolWorkflowActive = false;
-            debugLog('[ToolWorkflow] Deactivated (false) after synthesizeFinalAnswer complete');
+            Utils.debugLog('[ToolWorkflow] Deactivated (false) after synthesizeFinalAnswer complete');
         } catch (err) {
-            debugLog('[synthesizeFinalAnswer] Error:', err);
+            Utils.debugLog('[synthesizeFinalAnswer] Error:', err);
             UIController.addMessage('ai', `Final answer synthesis failed. Error: ${err && err.message ? err.message : err}`);
             // Set toolWorkflowActive to false on unrecoverable error
             state.toolWorkflowActive = false;
-            debugLog('[ToolWorkflow] Deactivated (false) due to error in synthesizeFinalAnswer');
+            Utils.debugLog('[ToolWorkflow] Deactivated (false) due to error in synthesizeFinalAnswer');
         }
     }
 
