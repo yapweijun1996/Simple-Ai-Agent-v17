@@ -596,6 +596,16 @@ const UIController = (function() {
         if (sendButton) sendButton.disabled = messageInput.value.trim().length === 0;
     }
 
+    /**
+     * Disables the message input and send button
+     */
+    function disableMessageInput() {
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        if (messageInput) messageInput.disabled = true;
+        if (sendButton) sendButton.disabled = true;
+    }
+
     // --- Planning Bar Logic (Improved) ---
     let planningBarCollapsed = false;
     function renderPlanningBar(planSteps) {
@@ -782,6 +792,7 @@ const UIController = (function() {
         showEmptyState,
         hideEmptyState,
         enableMessageInput,
+        disableMessageInput,
         renderPlanningBar,
         updatePlanningBar,
         hidePlanningBar,

@@ -288,7 +288,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
         } finally {
             Utils.updateTokenDisplay(state.totalTokens);
             UIController.clearStatus();
-            setInputState(true);
+            UIController.enableMessageInput();
         }
     }
 
