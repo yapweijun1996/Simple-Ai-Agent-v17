@@ -94,17 +94,15 @@ const ChatController = (function() {
         // Try to parse JSON, fallback to forgiving parser if needed
         let obj;
         try {
-            obj = JSON.parse(jsonStr);
-        } catch (err) {
-            // Try to fix common JSON issues: trailing commas, etc.
-            let safe = jsonStr.replace(/,\s*([}\]])/g, '$1');
+            // Sanitize before parsing
+            const sanitized = sanitizeJsonString(jsonStr);
             try {
-                obj = JSON.parse(safe);
-            } catch (err2) {
+                obj = JSON.parse(sanitized);
+            } catch (err) {
                 debugLog('Tool JSON parse error:', err, 'from', jsonStr);
-                debugLog('Tool JSON parse error (fallback):', err2, 'from', safe);
+                debugLog('Tool JSON parse error (sanitized):', err, 'from', sanitized);
                 // Fallback: regex for tool, arguments, query, url, action
-                const fallbackPattern = /(tool|action)\s*[:=]\s*['\"]?(\w+)['\"]?[,\s]+(arguments|query|url|queries)\s*[:=]\s*([\{\[].*[\}\]]|['\"].*?['\"])/s;
+                const fallbackPattern = /(tool|action)\s*[:=]\s*['"]?(\w+)['"]?[,\s]+(arguments|query|url|queries)\s*[:=]\s*([\{\[].*[\}\]]|['"].*?['"])/s;
                 const m = jsonStr.match(fallbackPattern);
                 if (m) {
                     let args = {};
@@ -117,8 +115,14 @@ const ChatController = (function() {
                     }
                     return { tool: m[2], arguments: args };
                 }
+                // Show user-friendly error
+                UIController.addMessage('ai', 'Error: Could not parse tool call JSON. Please check the tool call format.');
                 return null;
             }
+        } catch (err) {
+            debugLog('Tool JSON parse error (outer):', err, 'from', jsonStr);
+            UIController.addMessage('ai', 'Error: Could not parse tool call JSON. Please check the tool call format.');
+            return null;
         }
         // Accept alternative keys and normalize
         // Flatten tool_call/tool_code/action objects
