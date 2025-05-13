@@ -36,6 +36,9 @@ const UIController = (function() {
         // Show the chat container
         document.getElementById('chat-container').style.display = 'flex';
         
+        // Show the status bar with a default message
+        setStatusBar(document.getElementById('status-bar'), { type: 'info', message: 'Ready.', autoDismiss: false });
+        
         // Add enter key handler for message input
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
