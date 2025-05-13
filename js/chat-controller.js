@@ -50,10 +50,15 @@ const ChatController = (function() {
         debugLog('[extractToolCall] Raw text:', text);
         // Remove code block markers (```json, ```tool_code, or ```)
         text = text.replace(/```(?:json|tool_code)?/gi, '').replace(/```/g, '').trim();
-        // Remove trailing commas before } or ]
-        text = text.replace(/,\s*([}\]])/g, '$1');
         // Remove comments (// ... or /* ... */)
         text = text.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+        // Remove trailing commas before } or ]
+        text = text.replace(/,\s*([}\]])/g, '$1');
+        // Remove newlines inside string values (e.g., URLs)
+        // This regex finds quoted strings that span multiple lines and replaces newlines with ''
+        text = text.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/gs, (m) => m.replace(/\n/g, ''));
+        // Replace single quotes with double quotes
+        text = text.replace(/'/g, '"');
         // Prefer tool call wrapped in unique delimiters
         const match = text.match(/\[\[TOOLCALL\]\]([\s\S]*?)\[\[\/TOOLCALL\]\]/);
         let jsonStr = null;
@@ -65,53 +70,69 @@ const ChatController = (function() {
             if (jsonMatch) {
                 jsonStr = jsonMatch[0];
             } else {
-                // Try to extract tool call from common patterns (e.g., tool_call, tool, arguments)
-                // e.g. { tool: 'web_search', query: 'x' }
-                const toolCallPattern = /tool\s*[:=]\s*['\"]?(\w+)['\"]?[,\s]+(arguments|query)\s*[:=]\s*([\{\[].*[\}\]]|['\"].*?['\"])/s;
+                // Try to extract tool call from common patterns (e.g., tool_call, tool, arguments, action)
+                // e.g. { tool: 'web_search', query: 'x' } or { action: 'web_search', query: 'x' }
+                const toolCallPattern = /(tool|action)\s*[:=]\s*['\"]?(\w+)['\"]?[,\s]+(arguments|query|url|queries)\s*[:=]\s*([\{\[].*[\}\]]|['\"].*?['\"])/s;
                 const m = text.match(toolCallPattern);
                 if (m) {
-                    if (m[2] === 'arguments') {
+                    let args = {};
+                    if (m[3] === 'arguments') {
                         try {
-                            const args = JSON.parse(m[3]);
-                            return { tool: m[1], arguments: args };
+                            args = JSON.parse(m[4]);
                         } catch {}
-                    } else if (m[2] === 'query') {
-                        return { tool: m[1], arguments: { query: m[3].replace(/['\"]/g, '') } };
+                    } else if (m[3] === 'query' || m[3] === 'url' || m[3] === 'queries') {
+                        args[m[3]] = m[4].replace(/['\"]/g, '');
                     }
+                    return { tool: m[2], arguments: args };
                 }
                 return null;
             }
         }
         if (!jsonStr) return null;
         jsonStr = jsonStr.trim();
+        debugLog('[extractToolCall] Preprocessed JSON:', jsonStr);
         // Try to parse JSON, fallback to forgiving parser if needed
         let obj;
         try {
             obj = JSON.parse(jsonStr);
         } catch (err) {
-            // Try to fix common JSON issues: single quotes, trailing commas, etc.
-            let safe = jsonStr
-                .replace(/'/g, '"')
-                .replace(/,\s*([}\]])/g, '$1');
+            // Try to fix common JSON issues: trailing commas, etc.
+            let safe = jsonStr.replace(/,\s*([}\]])/g, '$1');
             try {
                 obj = JSON.parse(safe);
             } catch (err2) {
-                if (state.settings && state.settings.debug) {
-                    console.warn('Tool JSON parse error:', err, 'from', jsonStr);
-                    console.warn('Tool JSON parse error (fallback):', err2, 'from', safe);
+                debugLog('Tool JSON parse error:', err, 'from', jsonStr);
+                debugLog('Tool JSON parse error (fallback):', err2, 'from', safe);
+                // Fallback: regex for tool, arguments, query, url, action
+                const fallbackPattern = /(tool|action)\s*[:=]\s*['\"]?(\w+)['\"]?[,\s]+(arguments|query|url|queries)\s*[:=]\s*([\{\[].*[\}\]]|['\"].*?['\"])/s;
+                const m = jsonStr.match(fallbackPattern);
+                if (m) {
+                    let args = {};
+                    if (m[3] === 'arguments') {
+                        try {
+                            args = JSON.parse(m[4]);
+                        } catch {}
+                    } else if (m[3] === 'query' || m[3] === 'url' || m[3] === 'queries') {
+                        args[m[3]] = m[4].replace(/['\"]/g, '');
+                    }
+                    return { tool: m[2], arguments: args };
                 }
                 return null;
             }
         }
         // Accept alternative keys and normalize
+        // Flatten tool_call/tool_code/action objects
         if (obj.tool && typeof obj.arguments === 'object') {
             return obj;
         }
-        if (obj.tool_call && obj.tool_call.tool && obj.tool_call.query) {
-            return { tool: obj.tool_call.tool, arguments: { query: obj.tool_call.query } };
-        }
-        if (obj.tool_call && obj.tool_call.name && obj.tool_call.arguments) {
-            return { tool: obj.tool_call.name, arguments: obj.tool_call.arguments };
+        if (obj.tool_call && (obj.tool_call.tool || obj.tool_call.action)) {
+            const tool = obj.tool_call.tool || obj.tool_call.action;
+            let args = {};
+            if (obj.tool_call.arguments) args = obj.tool_call.arguments;
+            if (obj.tool_call.query) args.query = obj.tool_call.query;
+            if (obj.tool_call.url) args.url = obj.tool_call.url;
+            if (obj.tool_call.queries) args.queries = obj.tool_call.queries;
+            return { tool, arguments: args };
         }
         if (obj.tool_code && obj.url) {
             return { tool: obj.tool_code, arguments: { url: obj.url } };
@@ -123,6 +144,16 @@ const ChatController = (function() {
         // Handle { tool: 'web_search', queries: [...] }
         if (obj.tool && obj.queries) {
             return { tool: obj.tool, arguments: { queries: obj.queries } };
+        }
+        // Handle { action: 'web_search', ... }
+        if (obj.action && obj.query) {
+            return { tool: obj.action, arguments: { query: obj.query } };
+        }
+        if (obj.action && obj.queries) {
+            return { tool: obj.action, arguments: { queries: obj.queries } };
+        }
+        if (obj.action && obj.url) {
+            return { tool: obj.action, arguments: { url: obj.url } };
         }
         return null;
     }
