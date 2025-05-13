@@ -48,6 +48,8 @@ const ChatController = (function() {
     // Add helper to robustly extract JSON tool calls using delimiters and schema validation
     function extractToolCall(text) {
         debugLog('[extractToolCall] Raw text:', text);
+        // Remove code block markers (```json, ```tool_code, or ```)
+        text = text.replace(/```(?:json|tool_code)?/gi, '').replace(/```/g, '').trim();
         // Prefer tool call wrapped in unique delimiters
         const match = text.match(/\[\[TOOLCALL\]\]([\s\S]*?)\[\[\/TOOLCALL\]\]/);
         let jsonStr = null;
@@ -63,6 +65,7 @@ const ChatController = (function() {
             }
         }
         if (!jsonStr) return null;
+        jsonStr = jsonStr.trim();
         let obj;
         try {
             obj = JSON.parse(jsonStr);
@@ -76,8 +79,11 @@ const ChatController = (function() {
         if (obj.tool && typeof obj.arguments === 'object') {
             return obj;
         }
-        if (obj.tool_call && obj.tool_call.tool && obj.query) {
-            return { tool: obj.tool_call.tool, arguments: { query: obj.query } };
+        if (obj.tool_call && obj.tool_call.tool && obj.tool_call.query) {
+            return { tool: obj.tool_call.tool, arguments: { query: obj.tool_call.query } };
+        }
+        if (obj.tool_call && obj.tool_call.name && obj.tool_call.arguments) {
+            return { tool: obj.tool_call.name, arguments: obj.tool_call.arguments };
         }
         if (obj.tool_code && obj.url) {
             return { tool: obj.tool_code, arguments: { url: obj.url } };
