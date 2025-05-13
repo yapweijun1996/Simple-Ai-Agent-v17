@@ -62,18 +62,20 @@ const UIController = (function() {
         
         // Add global event delegation for thinking toggle buttons
         document.addEventListener('click', function(event) {
-            if (event.target.classList.contains('toggle-thinking') || 
-                event.target.parentElement.classList.contains('toggle-thinking')) {
-                const button = event.target.classList.contains('toggle-thinking') ? 
-                               event.target : event.target.parentElement;
-                const messageElement = button.closest('.chat-app__message');
-                
+            // Defensive: check if event.target and parentElement exist
+            const target = event.target;
+            const parent = target.parentElement;
+            if ((target.classList && target.classList.contains('toggle-thinking')) ||
+                (parent && parent.classList && parent.classList.contains('toggle-thinking'))) {
+                const button = (target.classList && target.classList.contains('toggle-thinking')) ?
+                    target : parent;
+                if (!button) return;
+                const messageElement = button.closest ? button.closest('.chat-app__message') : null;
                 // Toggle the expanded state
                 const isExpanded = button.getAttribute('data-expanded') === 'true';
                 button.setAttribute('data-expanded', !isExpanded);
-                
                 // Toggle visibility of thinking section
-                if (messageElement) {
+                if (messageElement && messageElement.classList) {
                     messageElement.classList.toggle('thinking-collapsed');
                     button.textContent = isExpanded ? 'Show thinking' : 'Hide thinking';
                 }
