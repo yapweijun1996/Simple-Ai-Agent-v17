@@ -595,7 +595,6 @@ If you understand, follow these instructions for every relevant question. Do NOT
             UIController.showStatus('Streaming response...', getAgentDetails());
             const aiMsgElement = UIController.createEmptyAIMessage();
             planDetected = await handleStreamingPlanResponse(model, aiMsgElement);
-            // Try to get the full reply from the message element (fallback)
             rawReply = aiMsgElement && aiMsgElement.textContent ? aiMsgElement.textContent : '';
         } else {
             const result = await ApiService.sendOpenAIRequest(model, state.chatHistory);
@@ -610,10 +609,16 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 planDetected = true;
             }
         }
-        // Always show the AI's message, even if no plan detected
         if (!planDetected) {
             UIController.addMessage('ai', rawReply);
             UIController.showStatus('No plan detected in AI response.', getAgentDetails());
+            // Always check for tool calls in the AI's reply, and execute them even if no plan is detected
+            const toolCall = extractToolCall(rawReply);
+            if (toolCall && toolCall.tool && toolCall.arguments) {
+                // Optionally, show a minimal planning bar for this tool call
+                setPlan([`Call tool: ${toolCall.tool}`]);
+                await processToolCall(toolCall);
+            }
         }
     }
 
@@ -664,10 +669,16 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 await executePlanSteps(model, planSteps);
             }
         }
-        // Always show the AI's message, even if no plan detected
         if (!planDetected) {
             UIController.addMessage('ai', rawReply);
             UIController.showStatus('No plan detected in AI response.', getAgentDetails());
+            // Always check for tool calls in the AI's reply, and execute them even if no plan is detected
+            const toolCall = extractToolCall(rawReply);
+            if (toolCall && toolCall.tool && toolCall.arguments) {
+                // Optionally, show a minimal planning bar for this tool call
+                setPlan([`Call tool: ${toolCall.tool}`]);
+                await processToolCall(toolCall);
+            }
         }
     }
 
