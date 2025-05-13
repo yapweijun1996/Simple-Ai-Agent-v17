@@ -1457,8 +1457,11 @@ If you output anything else, the system will reject your response.
         stepTimes: [],
     };
     function logAgentEvent(event, data) {
+        if (!window._agentEventLog) window._agentEventLog = [];
+        window._agentEventLog.push({ event, data, ts: Date.now() });
         if (window.AGENT_DEBUG) {
             console.log(`[AGENT] ${event}:`, data);
+            if (typeof updateAgentDebugPanel === 'function') updateAgentDebugPanel();
         }
     }
     function recordStepStat(type) {
@@ -1470,6 +1473,39 @@ If you output anything else, the system will reject your response.
 You are a tool-using agent. You must always output ONLY a tool call JSON or the string NO_TOOL_NEEDED, as described in the user instructions. Never output explanations, markdown, or extra text.
 If you output anything else, the system will reject your response.
 `;
+
+    // === Agent Debug/Analytics UI Panel ===
+    function updateAgentDebugPanel() {
+        const stats = window.agentStats || {};
+        let html = `<b>Agent Stats</b><br>`;
+        for (const k in stats) {
+            if (Array.isArray(stats[k])) {
+                html += `${k}: [${stats[k].join(', ')}]<br>`;
+            } else {
+                html += `${k}: ${stats[k]}<br>`;
+            }
+        }
+        html += `<button onclick="exportAgentStats()">Export Stats</button>`;
+        html += `<hr><b>Recent Agent Events</b><br>`;
+        if (!window._agentEventLog) window._agentEventLog = [];
+        window._agentEventLog.slice(-20).forEach(e => {
+            let color = (e.event && e.event.toLowerCase().includes('error')) ? 'red' : '#fff';
+            html += `<div style="margin-bottom:4px;color:${color}"><b>${e.event}</b>: <pre style="white-space:pre-wrap;">${JSON.stringify(e.data, null, 2)}</pre></div>`;
+        });
+        const panel = document.getElementById('agent-debug-content');
+        if (panel) panel.innerHTML = html;
+    }
+
+    function exportAgentStats() {
+        const stats = window.agentStats || {};
+        const blob = new Blob([JSON.stringify(stats, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'agentStats.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
 
     // Public API
     return {
