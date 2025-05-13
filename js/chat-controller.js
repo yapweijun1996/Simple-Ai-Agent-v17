@@ -1305,9 +1305,14 @@ If you understand, follow these instructions for every relevant question. Do NOT
      * @returns {Promise<string[]>}
      */
     async function generatePlan(userQuery) {
-        const prompt = `\nGiven the user question: "${userQuery}", output a numbered list of actionable steps to answer it. Each step should be specific and, if possible, correspond to a tool call or reasoning action.`;
-        const planText = await callLLM(prompt);
-        return extractPlanFromText(planText);
+        const prompt = `
+Given the user question: "${userQuery}", output a numbered list of actionable steps to answer it. Each step should be specific and, if possible, correspond to a tool call or reasoning action.`;
+        logAgentEvent('PlanPrompt', prompt);
+        const planText = await callLLM(prompt, undefined, AGENT_SYSTEM_PROMPT);
+        logAgentEvent('PlanGenerated', planText);
+        const plan = extractPlanFromText(planText);
+        agentStats.totalSteps = plan.length;
+        return plan;
     }
 
     /**
@@ -1319,24 +1324,52 @@ If you understand, follow these instructions for every relevant question. Do NOT
     async function executePlanStep(step, context) {
         const maxRetries = 2;
         let lastResponse = '';
+        const strictPrompt = `
+You are an AI agent that must follow these instructions exactly:
+
+- If the step requires a tool, output ONLY a tool call JSON object, e.g.:
+  {"tool":"web_search","arguments":{"query":"example query"}}
+- Do NOT output any explanation, markdown, or extra text.
+- If no tool is needed, output ONLY: NO_TOOL_NEEDED (in all caps, no quotes, no explanation).
+- If you are unsure, always call a tool.
+
+Step: "${step}"
+
+REMEMBER: Output ONLY a tool call JSON or NO_TOOL_NEEDED. Do not explain your answer.
+If you output anything else, the system will reject your response.
+`;
+        const startTime = Date.now();
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            const prompt = `\nGiven the step: "${step}", output ONLY a tool call JSON object (e.g., {\"tool\":\"web_search\",\"arguments\":{\"query\":\"...\"}}) if a tool is needed.\nDo NOT output any explanation, markdown, or extra text.\nIf no tool is needed, reply with 'NO_TOOL_NEEDED' (exactly, in all caps) and a brief reason.\nIf you are unsure, always call a tool.`;
-            const response = await callLLM(prompt, context);
+            logAgentEvent('StepPrompt', { step, strictPrompt, attempt });
+            const response = await callLLM(strictPrompt, context, AGENT_SYSTEM_PROMPT);
+            logAgentEvent('LLMResponse', { step, response, attempt });
             lastResponse = response;
             const toolCall = extractToolCall(response);
             if (toolCall) {
+                recordStepStat('toolCalls');
+                logAgentEvent('ToolCallExtracted', toolCall);
                 const toolResult = await processToolCall(toolCall);
+                logAgentEvent('ToolResult', toolResult);
                 const summaryPrompt = `\nThe tool call has been executed. Here is the result: ${toolResult}. Please summarize what was learned and provide the next reasoning or answer for this step.`;
-                const summary = await callLLM(summaryPrompt, context);
+                const summary = await callLLM(summaryPrompt, context, AGENT_SYSTEM_PROMPT);
+                const elapsed = Date.now() - startTime;
+                agentStats.stepTimes.push(elapsed);
                 return { toolCall, toolResult, summary };
-            } else if (response && response.includes('NO_TOOL_NEEDED')) {
+            } else if (response && response.trim() === 'NO_TOOL_NEEDED') {
+                recordStepStat('noToolNeeded');
+                const elapsed = Date.now() - startTime;
+                agentStats.stepTimes.push(elapsed);
                 return { summary: response };
+            } else {
+                recordStepStat('retries');
             }
-            // else, retry
         }
-        // After retries, ask user for intervention
-        const userAction = await promptUserForStepAction(step, lastResponse);
-        return { error: userAction || 'No valid tool call or NO_TOOL_NEEDED detected after retries.' };
+        recordStepStat('userInterventions');
+        logAgentEvent('StepError', { step, lastResponse });
+        const elapsed = Date.now() - startTime;
+        agentStats.stepTimes.push(elapsed);
+        // Optionally, you could call promptUserForStepAction here
+        return { error: 'No valid tool call or NO_TOOL_NEEDED detected after retries.' };
     }
 
     // === User intervention for failed steps ===
@@ -1367,20 +1400,21 @@ If you understand, follow these instructions for every relevant question. Do NOT
     }
 
     // === LLM API Wrapper Stub ===
-    async function callLLM(prompt, context) {
+    async function callLLM(prompt, context, systemPrompt) {
         // Replace with your actual LLM API call logic (OpenAI, Gemini, etc.)
         // For now, fallback to existing OpenAI/Gemini logic
         const selectedModel = SettingsController.getSettings().selectedModel;
+        const sysPrompt = systemPrompt || 'You are an AI assistant.';
         if (selectedModel.startsWith('gpt')) {
             const res = await ApiService.sendOpenAIRequest(selectedModel, [
-                { role: 'system', content: 'You are an AI assistant.' },
+                { role: 'system', content: sysPrompt },
                 { role: 'user', content: prompt }
             ]);
             return res.choices[0].message.content;
         } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
             const session = ApiService.createGeminiSession(selectedModel);
             const chatHistory = [
-                { role: 'system', content: 'You are an AI assistant.' },
+                { role: 'system', content: sysPrompt },
                 { role: 'user', content: prompt }
             ];
             const result = await session.sendMessage(prompt, chatHistory);
@@ -1411,6 +1445,31 @@ If you understand, follow these instructions for every relevant question. Do NOT
             }
         });
     }
+
+    // === Agent Workflow Logging & Analytics ===
+    window.AGENT_DEBUG = true; // Set to false to disable debug logs
+    const agentStats = {
+        totalSteps: 0,
+        toolCalls: 0,
+        noToolNeeded: 0,
+        retries: 0,
+        userInterventions: 0,
+        stepTimes: [],
+    };
+    function logAgentEvent(event, data) {
+        if (window.AGENT_DEBUG) {
+            console.log(`[AGENT] ${event}:`, data);
+        }
+    }
+    function recordStepStat(type) {
+        if (agentStats[type] !== undefined) agentStats[type]++;
+    }
+
+    // === Strict Prompt Engineering for Tool Call Compliance ===
+    const AGENT_SYSTEM_PROMPT = `
+You are a tool-using agent. You must always output ONLY a tool call JSON or the string NO_TOOL_NEEDED, as described in the user instructions. Never output explanations, markdown, or extra text.
+If you output anything else, the system will reject your response.
+`;
 
     // Public API
     return {
