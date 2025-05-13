@@ -476,6 +476,12 @@ If you understand, follow these instructions for every relevant question. Do NOT
                             state.isThinking = false;
                         }
                         const displayText = formatResponseForDisplay(processed);
+                        if (state.currentPlan && state.currentPlan.length > 0) {
+                            const idx = state.currentPlan.findIndex(s => s.status === 'in-progress');
+                            if (idx !== -1 && processed.thinking) {
+                                updatePlanStepStatus(idx, state.currentPlan[idx].status, state.currentPlan[idx].details, processed.thinking);
+                            }
+                        }
                         if (isPlanMessage(displayText)) {
                             UIController.addMessage('ai', displayText, 'plan');
                         } else {
@@ -497,6 +503,12 @@ If you understand, follow these instructions for every relevant question. Do NOT
                     debugLog('AI Thinking:', processed.thinking);
                 }
                 const displayText = formatResponseForDisplay(processed);
+                if (state.currentPlan && state.currentPlan.length > 0) {
+                    const idx = state.currentPlan.findIndex(s => s.status === 'in-progress');
+                    if (idx !== -1 && processed.thinking) {
+                        updatePlanStepStatus(idx, state.currentPlan[idx].status, state.currentPlan[idx].details, processed.thinking);
+                    }
+                }
                 if (isPlanMessage(displayText)) {
                     UIController.addMessage('ai', displayText, 'plan');
                 } else {
@@ -542,6 +554,12 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 const processed = parseCoTResponse(reply);
                 if (processed.thinking) {
                     debugLog('AI Thinking:', processed.thinking);
+                }
+                if (state.currentPlan && state.currentPlan.length > 0) {
+                    const idx = state.currentPlan.findIndex(s => s.status === 'in-progress');
+                    if (idx !== -1 && processed.thinking) {
+                        updatePlanStepStatus(idx, state.currentPlan[idx].status, state.currentPlan[idx].details, processed.thinking);
+                    }
                 }
                 state.chatHistory.push({ role: 'assistant', content: reply });
                 const displayText = formatResponseForDisplay(processed);
@@ -1073,17 +1091,20 @@ If you understand, follow these instructions for every relevant question. Do NOT
     // Plan tracking state
     const PLAN_STATUS = { PENDING: 'pending', IN_PROGRESS: 'in-progress', DONE: 'done', ERROR: 'error' };
 
-    // Helper: Set the current plan (array of {text, status, details})
+    // Helper: Set the current plan (array of {text, status, details, reasoning})
     function setPlan(planSteps) {
-        state.currentPlan = planSteps.map(text => ({ text, status: PLAN_STATUS.PENDING, details: '' }));
+        state.currentPlan = planSteps.map(text => ({ text, status: PLAN_STATUS.PENDING, details: '', reasoning: '' }));
         state.planStatus = 'active';
         UIController.renderPlanningBar(state.currentPlan);
     }
-    // Helper: Update a plan step's status
-    function updatePlanStepStatus(idx, status, details = '') {
+    // Helper: Update a plan step's status and reasoning
+    function updatePlanStepStatus(idx, status, details = '', reasoning = undefined) {
         if (state.currentPlan[idx]) {
             state.currentPlan[idx].status = status;
             state.currentPlan[idx].details = details;
+            if (reasoning !== undefined) {
+                state.currentPlan[idx].reasoning = reasoning;
+            }
             UIController.updatePlanningBar(state.currentPlan);
         }
     }

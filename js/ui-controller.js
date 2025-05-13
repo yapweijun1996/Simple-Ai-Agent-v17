@@ -655,6 +655,13 @@ const UIController = (function() {
                 tsDiv.textContent = tsText;
                 stepDiv.appendChild(tsDiv);
             }
+            // Reasoning/Thinking display (new)
+            if (step.reasoning && step.reasoning.length > 0) {
+                const reasoningDiv = document.createElement('div');
+                reasoningDiv.className = 'planning-step__reasoning';
+                reasoningDiv.innerHTML = `<strong>Reasoning:</strong> ${Utils.escapeHtml(step.reasoning)}`;
+                stepDiv.appendChild(reasoningDiv);
+            }
             // Details preview on hover, expand/collapse on click
             if (step.details) {
                 const detailsDiv = document.createElement('div');
