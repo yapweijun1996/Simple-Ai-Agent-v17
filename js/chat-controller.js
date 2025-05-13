@@ -997,45 +997,64 @@ If you understand, follow these instructions for every relevant question. Do NOT
         return state.totalTokens;
     }
 
-    // Helper: AI-driven deep reading for a URL
+    // Helper: Read a chunk from URL with caching
+    async function readUrlChunkWithCache(url, start, chunkSize) {
+        const cacheKey = `${url}:${start}:${chunkSize}`;
+        if (state.readCache.has(cacheKey)) {
+            return state.readCache.get(cacheKey);
+        } else {
+            await processToolCall({ tool: 'read_url', arguments: { url, start, length: chunkSize }, skipContinue: true });
+            // Find the last snippet added to chatHistory
+            const lastEntry = state.chatHistory[state.chatHistory.length - 1];
+            let snippet = '';
+            if (lastEntry && typeof lastEntry.content === 'string' && lastEntry.content.startsWith('Read content from')) {
+                snippet = lastEntry.content.split('\n').slice(1).join('\n');
+                state.readCache.set(cacheKey, snippet);
+            }
+            return snippet;
+        }
+    }
+
+    // Helper: Ask AI if more content is needed
+    async function aiNeedsMoreContent(url, snippet, selectedModel) {
+        const prompt = `Given the following snippet from ${url}, do you need more content to answer the user's question? Please reply with \"YES\" or \"NO\" and a brief reason. If YES, estimate how many more characters you need.\n\nSnippet:\n${snippet}`;
+        if (selectedModel.startsWith('gpt')) {
+            const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                { role: 'system', content: 'You are an assistant that decides if more content is needed from a web page.' },
+                { role: 'user', content: prompt }
+            ]);
+            return res.choices[0].message.content.trim().toLowerCase();
+        }
+        // Add Gemini/Gemma support if needed
+        return 'no';
+    }
+
+    /**
+     * AI-driven deep reading for a URL, chunked and cached, with AI-driven continuation.
+     * Modularized for clarity and maintainability.
+     * @param {string} url - The URL to read
+     * @param {number} maxChunks - Maximum number of chunks
+     * @param {number} chunkSize - Size of each chunk
+     * @param {number} maxTotalLength - Maximum total length
+     * @returns {Array} - All read chunks
+     */
     async function deepReadUrl(url, maxChunks = 5, chunkSize = 2000, maxTotalLength = 10000) {
         let allChunks = [];
         let start = 0;
         let shouldContinue = true;
         let chunkCount = 0;
         let totalLength = 0;
+        const selectedModel = SettingsController.getSettings().selectedModel;
         while (shouldContinue && chunkCount < maxChunks && totalLength < maxTotalLength) {
-            // Check cache first
-            const cacheKey = `${url}:${start}:${chunkSize}`;
-            let snippet;
-            if (state.readCache.has(cacheKey)) {
-                snippet = state.readCache.get(cacheKey);
-            } else {
-                await processToolCall({ tool: 'read_url', arguments: { url, start, length: chunkSize }, skipContinue: true });
-                // Find the last snippet added to chatHistory
-                const lastEntry = state.chatHistory[state.chatHistory.length - 1];
-                if (lastEntry && typeof lastEntry.content === 'string' && lastEntry.content.startsWith('Read content from')) {
-                    snippet = lastEntry.content.split('\n').slice(1).join('\n');
-                    state.readCache.set(cacheKey, snippet);
-                } else {
-                    snippet = '';
-                }
-            }
+            // Read chunk with cache
+            let snippet = await readUrlChunkWithCache(url, start, chunkSize);
             if (!snippet) break;
             allChunks.push(snippet);
             totalLength += snippet.length;
             // Ask AI if more is needed
-            const selectedModel = SettingsController.getSettings().selectedModel;
             let aiReply = '';
             try {
-                const prompt = `Given the following snippet from ${url}, do you need more content to answer the user's question? Please reply with \"YES\" or \"NO\" and a brief reason. If YES, estimate how many more characters you need.\n\nSnippet:\n${snippet}`;
-                if (selectedModel.startsWith('gpt')) {
-                    const res = await ApiService.sendOpenAIRequest(selectedModel, [
-                        { role: 'system', content: 'You are an assistant that decides if more content is needed from a web page.' },
-                        { role: 'user', content: prompt }
-                    ]);
-                    aiReply = res.choices[0].message.content.trim().toLowerCase();
-                }
+                aiReply = await aiNeedsMoreContent(url, snippet, selectedModel);
             } catch (err) {
                 // On error, stop deep reading
                 shouldContinue = false;
