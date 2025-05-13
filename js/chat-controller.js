@@ -1141,7 +1141,52 @@ If you understand, follow these instructions for every relevant question. Do NOT
         return batches;
     }
 
-    // Summarization logic (recursive, context-aware)
+    // Helper: Summarize a batch of snippets
+    async function summarizeBatch(snippets, selectedModel, timeout) {
+        const batchPrompt = `Summarize the following information extracted from web pages (be as concise as possible):\n\n${snippets.join('\n---\n')}`;
+        if (selectedModel.startsWith('gpt')) {
+            const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+                { role: 'user', content: batchPrompt }
+            ], timeout);
+            return res.choices[0].message.content.trim();
+        } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
+            const session = ApiService.createGeminiSession(selectedModel);
+            const chatHistory = [
+                { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+                { role: 'user', content: batchPrompt }
+            ];
+            const result = await session.sendMessage(batchPrompt, chatHistory);
+            const candidate = result.candidates[0];
+            if (candidate.content.parts) {
+                return candidate.content.parts.map(p => p.text).join(' ').trim();
+            } else if (candidate.content.text) {
+                return candidate.content.text.trim();
+            }
+        }
+        return '';
+    }
+
+    // Helper: Recursively summarize batches
+    async function summarizeBatchesRecursively(batches, selectedModel, timeout, round = 1) {
+        let batchSummaries = [];
+        const totalBatches = batches.length;
+        for (let i = 0; i < totalBatches; i++) {
+            UIController.showSpinner(`Round ${round}: Summarizing batch ${i + 1} of ${totalBatches}...`, getAgentDetails());
+            UIController.showStatus(`Round ${round}: Summarizing batch ${i + 1} of ${totalBatches}...`, getAgentDetails());
+            const batchReply = await summarizeBatch(batches[i], selectedModel, timeout);
+            batchSummaries.push(batchReply);
+        }
+        const combined = batchSummaries.join('\n---\n');
+        return { combined, batchSummaries };
+    }
+
+    /**
+     * Summarizes snippets recursively, batching as needed for prompt length.
+     * Modularized for clarity and maintainability.
+     * @param {Array|null} snippets - The snippets to summarize
+     * @param {number} round - The current summarization round
+     */
     async function summarizeSnippets(snippets = null, round = 1) {
         debugLog('summarizeSnippets', { snippets, round });
         if (!snippets) snippets = state.readSnippets;
@@ -1156,26 +1201,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
             UIController.showSpinner(`Round ${round}: Summarizing information...`, getAgentDetails());
             UIController.showStatus(`Round ${round}: Summarizing information...`, getAgentDetails());
             try {
-                if (selectedModel.startsWith('gpt')) {
-                    const res = await ApiService.sendOpenAIRequest(selectedModel, [
-                        { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
-                        { role: 'user', content: prompt }
-                    ], SUMMARIZATION_TIMEOUT);
-                    aiReply = res.choices[0].message.content.trim();
-                } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
-                    const session = ApiService.createGeminiSession(selectedModel);
-                    const chatHistory = [
-                        { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
-                        { role: 'user', content: prompt }
-                    ];
-                    const result = await session.sendMessage(prompt, chatHistory);
-                    const candidate = result.candidates[0];
-                    if (candidate.content.parts) {
-                        aiReply = candidate.content.parts.map(p => p.text).join(' ').trim();
-                    } else if (candidate.content.text) {
-                        aiReply = candidate.content.text.trim();
-                    }
-                }
+                aiReply = await summarizeBatch([snippets[0]], selectedModel, SUMMARIZATION_TIMEOUT);
                 if (aiReply) {
                     UIController.addMessage('ai', `Summary:\n${aiReply}`);
                 }
@@ -1191,39 +1217,9 @@ If you understand, follow these instructions for every relevant question. Do NOT
         }
         // Otherwise, split into batches
         const batches = splitIntoBatches(snippets, MAX_PROMPT_LENGTH);
-        let batchSummaries = [];
-        const totalBatches = batches.length;
         try {
-            for (let i = 0; i < totalBatches; i++) {
-                const batch = batches[i];
-                UIController.showSpinner(`Round ${round}: Summarizing batch ${i + 1} of ${totalBatches}...`, getAgentDetails());
-                UIController.showStatus(`Round ${round}: Summarizing batch ${i + 1} of ${totalBatches}...`, getAgentDetails());
-                const batchPrompt = `Summarize the following information extracted from web pages (be as concise as possible):\n\n${batch.join('\n---\n')}`;
-                let batchReply = '';
-                if (selectedModel.startsWith('gpt')) {
-                    const res = await ApiService.sendOpenAIRequest(selectedModel, [
-                        { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
-                        { role: 'user', content: batchPrompt }
-                    ], SUMMARIZATION_TIMEOUT);
-                    batchReply = res.choices[0].message.content.trim();
-                } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
-                    const session = ApiService.createGeminiSession(selectedModel);
-                    const chatHistory = [
-                        { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
-                        { role: 'user', content: batchPrompt }
-                    ];
-                    const result = await session.sendMessage(batchPrompt, chatHistory);
-                    const candidate = result.candidates[0];
-                    if (candidate.content.parts) {
-                        batchReply = candidate.content.parts.map(p => p.text).join(' ').trim();
-                    } else if (candidate.content.text) {
-                        batchReply = candidate.content.text.trim();
-                    }
-                }
-                batchSummaries.push(batchReply);
-            }
+            const { combined, batchSummaries } = await summarizeBatchesRecursively(batches, selectedModel, SUMMARIZATION_TIMEOUT, round);
             // If the combined summaries are still too long, recursively summarize
-            const combined = batchSummaries.join('\n---\n');
             if (combined.length > MAX_PROMPT_LENGTH) {
                 UIController.showSpinner(`Round ${round + 1}: Combining summaries...`, getAgentDetails());
                 UIController.showStatus(`Round ${round + 1}: Combining summaries...`, getAgentDetails());
@@ -1243,7 +1239,41 @@ If you understand, follow these instructions for every relevant question. Do NOT
         state.readSnippets = [];
     }
 
-    // Add synthesizeFinalAnswer helper
+    // Helper: Construct final answer prompt
+    function buildFinalAnswerPrompt(summaries, originalQuestion) {
+        return `Based on the following summaries, provide a final, concise answer to the original question.\n\nSummaries:\n${summaries}\n\nOriginal question: ${originalQuestion}`;
+    }
+
+    // Helper: Get final answer from model
+    async function getFinalAnswerFromModel(selectedModel, prompt) {
+        if (selectedModel.startsWith('gpt')) {
+            const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources and provides a final answer.' },
+                { role: 'user', content: prompt }
+            ]);
+            return res.choices[0].message.content.trim();
+        } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
+            const session = ApiService.createGeminiSession(selectedModel);
+            const chatHistory = [
+                { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources and provides a final answer.' },
+                { role: 'user', content: prompt }
+            ];
+            const result = await session.sendMessage(prompt, chatHistory);
+            const candidate = result.candidates[0];
+            if (candidate.content.parts) {
+                return candidate.content.parts.map(p => p.text).join(' ').trim();
+            } else if (candidate.content.text) {
+                return candidate.content.text.trim();
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Synthesizes the final answer from summaries and the original question.
+     * Modularized for clarity and maintainability.
+     * @param {string} summaries - The summaries to use
+     */
     async function synthesizeFinalAnswer(summaries) {
         debugLog('[synthesizeFinalAnswer] summaries:', summaries);
         if (!summaries || !state.originalUserQuestion) {
@@ -1253,30 +1283,10 @@ If you understand, follow these instructions for every relevant question. Do NOT
             return;
         }
         const selectedModel = SettingsController.getSettings().selectedModel;
-        const prompt = `Based on the following summaries, provide a final, concise answer to the original question.\n\nSummaries:\n${summaries}\n\nOriginal question: ${state.originalUserQuestion}`;
+        const prompt = buildFinalAnswerPrompt(summaries, state.originalUserQuestion);
         debugLog('[synthesizeFinalAnswer] Prompt:', prompt);
         try {
-            let finalAnswer = '';
-            if (selectedModel.startsWith('gpt')) {
-                const res = await ApiService.sendOpenAIRequest(selectedModel, [
-                    { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources and provides a final answer.' },
-                    { role: 'user', content: prompt }
-                ]);
-                finalAnswer = res.choices[0].message.content.trim();
-            } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
-                const session = ApiService.createGeminiSession(selectedModel);
-                const chatHistory = [
-                    { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources and provides a final answer.' },
-                    { role: 'user', content: prompt }
-                ];
-                const result = await session.sendMessage(prompt, chatHistory);
-                const candidate = result.candidates[0];
-                if (candidate.content.parts) {
-                    finalAnswer = candidate.content.parts.map(p => p.text).join(' ').trim();
-                } else if (candidate.content.text) {
-                    finalAnswer = candidate.content.text.trim();
-                }
-            }
+            const finalAnswer = await getFinalAnswerFromModel(selectedModel, prompt);
             debugLog('[synthesizeFinalAnswer] Final answer:', finalAnswer);
             if (finalAnswer && finalAnswer.trim()) {
                 UIController.addMessage('ai', `Final Answer:\n${finalAnswer}`);
