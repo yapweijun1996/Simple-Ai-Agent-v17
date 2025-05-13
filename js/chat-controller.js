@@ -1109,6 +1109,11 @@ If you understand, follow these instructions for every relevant question. Do NOT
         );
     }
 
+    // Backward compatibility for processToolCall and other logic
+    async function handleGeminiMessage(model, message) {
+        await handleGeminiMessageWithPlan(model, message);
+    }
+
     // Public API
     return {
         init,
