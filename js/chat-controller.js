@@ -474,6 +474,13 @@ If you understand, follow these instructions for every relevant question. Do NOT
                         const processed = parseCoTResponse(fullText, true);
                         if (state.isThinking && fullText.includes('Answer:')) {
                             state.isThinking = false;
+                            // Mark current step as done and advance if in-progress
+                            if (state.currentPlan && state.currentPlan.length > 0) {
+                                const idx = state.currentPlan.findIndex(s => s.status === 'in-progress');
+                                if (idx !== -1) {
+                                    completeCurrentStep(state.currentPlan[idx].details, processed.thinking);
+                                }
+                            }
                         }
                         const displayText = formatResponseForDisplay(processed);
                         if (state.currentPlan && state.currentPlan.length > 0) {
@@ -554,6 +561,13 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 const processed = parseCoTResponse(reply);
                 if (processed.thinking) {
                     debugLog('AI Thinking:', processed.thinking);
+                }
+                // Mark current step as done and advance if in-progress and 'Answer:' is present
+                if (reply.includes('Answer:') && state.currentPlan && state.currentPlan.length > 0) {
+                    const idx = state.currentPlan.findIndex(s => s.status === 'in-progress');
+                    if (idx !== -1) {
+                        completeCurrentStep(state.currentPlan[idx].details, processed.thinking);
+                    }
                 }
                 if (state.currentPlan && state.currentPlan.length > 0) {
                     const idx = state.currentPlan.findIndex(s => s.status === 'in-progress');
@@ -1093,12 +1107,37 @@ If you understand, follow these instructions for every relevant question. Do NOT
 
     // Helper: Set the current plan (array of {text, status, details, reasoning})
     function setPlan(planSteps) {
-        state.currentPlan = planSteps.map(text => ({ text, status: PLAN_STATUS.PENDING, details: '', reasoning: '' }));
+        state.currentPlan = planSteps.map((text, idx) => ({
+            text,
+            status: idx === 0 ? PLAN_STATUS.IN_PROGRESS : PLAN_STATUS.PENDING,
+            details: '',
+            reasoning: ''
+        }));
         state.planStatus = 'active';
         UIController.renderPlanningBar(state.currentPlan);
     }
-    // Helper: Update a plan step's status and reasoning
+    // Helper: Mark a step as done and move to the next step
+    function completeCurrentStep(details = '', reasoning = '') {
+        const idx = state.currentPlan.findIndex(s => s.status === PLAN_STATUS.IN_PROGRESS);
+        if (idx !== -1) {
+            state.currentPlan[idx].status = PLAN_STATUS.DONE;
+            if (details) state.currentPlan[idx].details = details;
+            if (reasoning) state.currentPlan[idx].reasoning = reasoning;
+            // Move to next step if exists
+            if (state.currentPlan[idx + 1]) {
+                state.currentPlan[idx + 1].status = PLAN_STATUS.IN_PROGRESS;
+            }
+            UIController.updatePlanningBar(state.currentPlan);
+        }
+    }
+    // Helper: Update a plan step's status and reasoning (now ensures only one in-progress)
     function updatePlanStepStatus(idx, status, details = '', reasoning = undefined) {
+        // Set all steps except idx to not in-progress
+        state.currentPlan.forEach((step, i) => {
+            if (i !== idx && step.status === PLAN_STATUS.IN_PROGRESS) {
+                step.status = PLAN_STATUS.PENDING;
+            }
+        });
         if (state.currentPlan[idx]) {
             state.currentPlan[idx].status = status;
             state.currentPlan[idx].details = details;
