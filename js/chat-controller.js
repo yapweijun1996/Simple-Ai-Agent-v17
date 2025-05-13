@@ -1317,21 +1317,34 @@ If you understand, follow these instructions for every relevant question. Do NOT
      * @returns {Promise<object>}
      */
     async function executePlanStep(step, context) {
-        const prompt = `\nGiven the step: "${step}", output ONLY a tool call JSON if a tool is needed (as per the system instructions). If no tool is needed, reply with 'NO_TOOL_NEEDED' and a brief reason.`;
-        const response = await callLLM(prompt, context);
-        const toolCall = extractToolCall(response);
-        if (toolCall) {
-            const toolResult = await processToolCall(toolCall);
-            // Optionally, ask for a summary
-            const summaryPrompt = `\nThe tool call has been executed. Here is the result: ${toolResult}. Please summarize what was learned and provide the next reasoning or answer for this step.`;
-            const summary = await callLLM(summaryPrompt, context);
-            return { toolCall, toolResult, summary };
-        } else if (response && response.includes('NO_TOOL_NEEDED')) {
-            return { summary: response };
-        } else {
-            // Optionally, retry or mark as failed
-            return { error: 'No valid tool call or NO_TOOL_NEEDED detected.' };
+        const maxRetries = 2;
+        let lastResponse = '';
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            const prompt = `\nGiven the step: "${step}", output ONLY a tool call JSON object (e.g., {\"tool\":\"web_search\",\"arguments\":{\"query\":\"...\"}}) if a tool is needed.\nDo NOT output any explanation, markdown, or extra text.\nIf no tool is needed, reply with 'NO_TOOL_NEEDED' (exactly, in all caps) and a brief reason.\nIf you are unsure, always call a tool.`;
+            const response = await callLLM(prompt, context);
+            lastResponse = response;
+            const toolCall = extractToolCall(response);
+            if (toolCall) {
+                const toolResult = await processToolCall(toolCall);
+                const summaryPrompt = `\nThe tool call has been executed. Here is the result: ${toolResult}. Please summarize what was learned and provide the next reasoning or answer for this step.`;
+                const summary = await callLLM(summaryPrompt, context);
+                return { toolCall, toolResult, summary };
+            } else if (response && response.includes('NO_TOOL_NEEDED')) {
+                return { summary: response };
+            }
+            // else, retry
         }
+        // After retries, ask user for intervention
+        const userAction = await promptUserForStepAction(step, lastResponse);
+        return { error: userAction || 'No valid tool call or NO_TOOL_NEEDED detected after retries.' };
+    }
+
+    // === User intervention for failed steps ===
+    async function promptUserForStepAction(step, lastResponse) {
+        // For now, just notify the user and return null
+        UIController.addMessage('ai', `Step "${step}" could not be executed automatically. Last LLM response: ${lastResponse}. Please intervene manually.`);
+        // Optionally, you could show a modal or input for the user to provide a tool call or mark as NO_TOOL_NEEDED
+        return null;
     }
 
     // === UI Integration Stubs (replace with your actual UI functions) ===
@@ -1379,6 +1392,24 @@ If you understand, follow these instructions for every relevant question. Do NOT
             }
         }
         return '';
+    }
+
+    // === Wire runAgentWorkflow into the chat UI ===
+    // Replace or supplement your send button handler
+    const sendButton = document.getElementById('send-button');
+    if (sendButton) {
+        sendButton.addEventListener('click', async () => {
+            const userQuery = UIController.getUserInput();
+            if (!userQuery.trim()) return;
+            UIController.disableMessageInput && UIController.disableMessageInput();
+            UIController.showSpinner && UIController.showSpinner('Running agent workflow...');
+            try {
+                await runAgentWorkflow(userQuery);
+            } finally {
+                UIController.hideSpinner && UIController.hideSpinner();
+                UIController.enableMessageInput && UIController.enableMessageInput();
+            }
+        });
     }
 
     // Public API
