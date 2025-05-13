@@ -512,6 +512,11 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 await onToolCall(toolCall);
                 return;
             }
+            // If tool call extraction failed but the response looks like a tool call, log and show error
+            if (!toolCall && typeof fullReply === 'string' && fullReply.includes('{"tool":')) {
+                debugLog('[ToolCall] Tool call JSON detected in response but failed to parse:', fullReply);
+                UIController.addMessage('ai', 'Error: Tool call detected in agent response but could not be parsed. Please check the tool call format or delimiters.');
+            }
             if (state.settings.enableCoT) {
                 const processed = parseCoTResponse(fullReply);
                 if (processed.thinking) {
@@ -564,6 +569,11 @@ If you understand, follow these instructions for every relevant question. Do NOT
             if (toolCall && toolCall.tool && toolCall.arguments) {
                 await onToolCall(toolCall);
                 return;
+            }
+            // If tool call extraction failed but the response looks like a tool call, log and show error
+            if (!toolCall && typeof reply === 'string' && reply.includes('{"tool":')) {
+                debugLog('[ToolCall] Tool call JSON detected in response but failed to parse:', reply);
+                UIController.addMessage('ai', 'Error: Tool call detected in agent response but could not be parsed. Please check the tool call format or delimiters.');
             }
             if (state.settings.enableCoT) {
                 const processed = parseCoTResponse(reply);
@@ -778,6 +788,11 @@ If you understand, follow these instructions for every relevant question. Do NOT
         }
         // Log tool call
         state.toolCallHistory.push({ tool, args, timestamp: new Date().toISOString() });
+        if (!toolHandlers[tool]) {
+            debugLog(`[ToolCall] No handler found for tool: ${tool}`);
+            UIController.addMessage('ai', `Error: No handler found for tool "${tool}". Please check tool configuration.`);
+            return;
+        }
         try {
             debugLog(`[ToolCall] Executing handler for: ${tool}`, pretty(args));
             await toolHandlers[tool](args);
