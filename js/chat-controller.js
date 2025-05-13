@@ -596,9 +596,54 @@ If you understand, follow these instructions for every relevant question. Do NOT
         }
     }
 
-    // Helper: handleOpenAIMessage with plan extraction
+    // New: Execute plan steps in order, updating the planning bar and reasoning
+    async function executePlanSteps(model, planSteps) {
+        setPlan(planSteps);
+        for (let idx = 0; idx < planSteps.length; idx++) {
+            // Mark current step as in-progress
+            updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS);
+            // Generate reasoning and/or take action for this step
+            const stepText = planSteps[idx];
+            // For now, just ask the LLM to reason about this step and take action if needed
+            const prompt = `Step ${idx + 1}: ${stepText}\n\nPlease reason step-by-step and take any necessary tool actions before marking this step as done.`;
+            const currentSettings = SettingsController.getSettings();
+            let reply = '';
+            if (model.startsWith('gpt')) {
+                const res = await ApiService.sendOpenAIRequest(model, [
+                    { role: 'system', content: 'You are an AI assistant following a multi-step plan. For each step, reason step-by-step and take any necessary tool actions before marking the step as done.' },
+                    { role: 'user', content: prompt }
+                ]);
+                reply = res.choices[0].message.content;
+            } else if (model.startsWith('gemini') || model.startsWith('gemma')) {
+                const session = ApiService.createGeminiSession(model);
+                const chatHistory = [
+                    { role: 'system', content: 'You are an AI assistant following a multi-step plan. For each step, reason step-by-step and take any necessary tool actions before marking the step as done.' },
+                    { role: 'user', content: prompt }
+                ];
+                const result = await session.sendMessage(prompt, chatHistory);
+                const candidate = result.candidates[0];
+                if (candidate.content.parts) {
+                    reply = candidate.content.parts.map(p => p.text).join(' ');
+                } else if (candidate.content.text) {
+                    reply = candidate.content.text;
+                }
+            }
+            // Parse reasoning and answer
+            const processed = parseCoTResponse(reply);
+            if (processed.thinking) {
+                updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
+            }
+            // Mark step as done
+            updatePlanStepStatus(idx, PLAN_STATUS.DONE, '', processed.thinking);
+        }
+        // After all steps, synthesize and present the final answer
+        await synthesizeFinalAnswer('');
+    }
+
+    // Refactor handleOpenAIMessageWithPlan
     async function handleOpenAIMessageWithPlan(model, message) {
         let planDetected = false;
+        let planSteps = [];
         if (state.settings.streaming) {
             UIController.showStatus('Streaming response...', getAgentDetails());
             const aiMsgElement = UIController.createEmptyAIMessage();
@@ -610,7 +655,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 onToolCall: processToolCall,
                 onChunk: (chunk, fullText) => {
                     if (!firstPlanExtracted && fullText) {
-                        const planSteps = extractPlanFromText(fullText);
+                        planSteps = extractPlanFromText(fullText);
                         if (planSteps.length > 0) {
                             setPlan(planSteps);
                             firstPlanExtracted = true;
@@ -619,6 +664,9 @@ If you understand, follow these instructions for every relevant question. Do NOT
                     }
                 }
             });
+            if (planDetected && planSteps.length > 0) {
+                await executePlanSteps(model, planSteps);
+            }
         } else {
             // Non-streaming: extract plan from full reply
             const result = await ApiService.sendOpenAIRequest(model, state.chatHistory);
@@ -627,13 +675,11 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 state.totalTokens += result.usage.total_tokens;
             }
             const reply = result.choices[0].message.content;
-            const planSteps = extractPlanFromText(reply);
+            planSteps = extractPlanFromText(reply);
             if (planSteps.length > 0) {
-                setPlan(planSteps);
                 planDetected = true;
+                await executePlanSteps(model, planSteps);
             }
-            // Continue with normal handling
-            await handleNonStreamingResponse({ model, requestFn: async () => result, onToolCall: processToolCall });
         }
         // User feedback if no plan detected
         if (!planDetected) {
@@ -641,10 +687,11 @@ If you understand, follow these instructions for every relevant question. Do NOT
         }
     }
 
-    // Helper: handleGeminiMessage with plan extraction
+    // Refactor handleGeminiMessageWithPlan
     async function handleGeminiMessageWithPlan(model, message) {
         state.chatHistory.push({ role: 'user', content: message });
         let planDetected = false;
+        let planSteps = [];
         if (state.settings.streaming) {
             const aiMsgElement = UIController.createEmptyAIMessage();
             let firstPlanExtracted = false;
@@ -655,7 +702,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 onToolCall: processToolCall,
                 onChunk: (chunk, fullText) => {
                     if (!firstPlanExtracted && fullText) {
-                        const planSteps = extractPlanFromText(fullText);
+                        planSteps = extractPlanFromText(fullText);
                         if (planSteps.length > 0) {
                             setPlan(planSteps);
                             firstPlanExtracted = true;
@@ -664,6 +711,9 @@ If you understand, follow these instructions for every relevant question. Do NOT
                     }
                 }
             });
+            if (planDetected && planSteps.length > 0) {
+                await executePlanSteps(model, planSteps);
+            }
         } else {
             // Non-streaming: extract plan from full reply
             const session = ApiService.createGeminiSession(model);
@@ -678,63 +728,15 @@ If you understand, follow these instructions for every relevant question. Do NOT
             } else if (candidate.content.text) {
                 textResponse = candidate.content.text;
             }
-            const planSteps = extractPlanFromText(textResponse);
+            planSteps = extractPlanFromText(textResponse);
             if (planSteps.length > 0) {
-                setPlan(planSteps);
                 planDetected = true;
+                await executePlanSteps(model, planSteps);
             }
-            // Continue with normal handling
-            await handleGeminiNonStreaming(model, message);
         }
         // User feedback if no plan detected
         if (!planDetected) {
             UIController.showStatus('No plan detected in AI response.', getAgentDetails());
-        }
-    }
-
-    // Helper: Handle non-streaming Gemini response
-    async function handleGeminiNonStreaming(model, message) {
-        try {
-            const session = ApiService.createGeminiSession(model);
-            const result = await session.sendMessage(message, state.chatHistory);
-            if (result.usageMetadata && typeof result.usageMetadata.totalTokenCount === 'number') {
-                state.totalTokens += result.usageMetadata.totalTokenCount;
-            }
-            const candidate = result.candidates[0];
-            let textResponse = '';
-            if (candidate.content.parts) {
-                textResponse = candidate.content.parts.map(p => p.text).join(' ');
-            } else if (candidate.content.text) {
-                textResponse = candidate.content.text;
-            }
-            const toolCall = extractToolCall(textResponse);
-            if (toolCall && toolCall.tool && toolCall.arguments) {
-                await processToolCall(toolCall);
-                return;
-            }
-            if (state.settings.enableCoT) {
-                const processed = parseCoTResponse(textResponse);
-                if (processed.thinking) {
-                    debugLog('AI Thinking:', processed.thinking);
-                }
-                state.chatHistory.push({ role: 'assistant', content: textResponse });
-                const displayText = formatResponseForDisplay(processed);
-                if (isPlanMessage(displayText)) {
-                    UIController.addMessage('ai', displayText, 'plan');
-                } else {
-                    UIController.addMessage('ai', displayText);
-                }
-            } else {
-                state.chatHistory.push({ role: 'assistant', content: textResponse });
-                UIController.addMessage('ai', textResponse);
-            }
-        } catch (err) {
-            throw err;
-        } finally {
-            // Always re-enable message input
-            UIController.hideSpinner();
-            UIController.clearStatus();
-            UIController.enableMessageInput && UIController.enableMessageInput();
         }
     }
 
