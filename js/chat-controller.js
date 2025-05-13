@@ -532,10 +532,20 @@ If you understand, follow these instructions for every relevant question. Do NOT
 
     // Helper: Extract plan from text and set plan state
     function extractAndSetPlanFromText(text) {
+        // If multiple lines, treat each non-empty line as a step if at least one matches a plan pattern
+        const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+        const planPattern = /^(\d+\.|Step\s*\d+[:.]|-\s+)/i;
+        const hasPlanLike = lines.some(line => planPattern.test(line));
+        if (hasPlanLike && lines.length > 1) {
+            return lines;
+        }
+        // Fallback to original extraction
         const planSteps = extractPlanFromText(text);
-        if (planSteps.length > 0) {
-            setPlan(planSteps);
-            return planSteps;
+        if (planSteps.length > 0) return planSteps;
+        // If the text is a tool call, treat as a single-step plan
+        const toolCall = extractToolCall(text);
+        if (toolCall && toolCall.tool && toolCall.arguments) {
+            return [`Call tool: ${toolCall.tool}`];
         }
         return [];
     }
@@ -603,8 +613,10 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 state.totalTokens += result.usage.total_tokens;
             }
             rawReply = result.choices[0].message.content;
-            const planSteps = extractAndSetPlanFromText(rawReply);
+            // Use robust plan extraction
+            const planSteps = robustExtractPlanFromText(rawReply);
             if (planSteps.length > 0) {
+                setPlan(planSteps);
                 await executePlanSteps(model, planSteps);
                 planDetected = true;
             }
@@ -612,10 +624,8 @@ If you understand, follow these instructions for every relevant question. Do NOT
         if (!planDetected) {
             UIController.addMessage('ai', rawReply);
             UIController.showStatus('No plan detected in AI response.', getAgentDetails());
-            // Always check for tool calls in the AI's reply, and execute them even if no plan is detected
             const toolCall = extractToolCall(rawReply);
             if (toolCall && toolCall.tool && toolCall.arguments) {
-                // Optionally, show a minimal planning bar for this tool call
                 setPlan([`Call tool: ${toolCall.tool}`]);
                 await processToolCall(toolCall);
             }
@@ -639,7 +649,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 onChunk: (chunk, fullText) => {
                     rawReply = fullText;
                     if (!firstPlanExtracted && fullText) {
-                        planSteps = extractPlanFromText(fullText);
+                        planSteps = robustExtractPlanFromText(fullText);
                         if (planSteps.length > 0) {
                             setPlan(planSteps);
                             firstPlanExtracted = true;
@@ -663,8 +673,9 @@ If you understand, follow these instructions for every relevant question. Do NOT
             } else if (candidate.content.text) {
                 rawReply = candidate.content.text;
             }
-            planSteps = extractPlanFromText(rawReply);
+            planSteps = robustExtractPlanFromText(rawReply);
             if (planSteps.length > 0) {
+                setPlan(planSteps);
                 planDetected = true;
                 await executePlanSteps(model, planSteps);
             }
@@ -672,10 +683,8 @@ If you understand, follow these instructions for every relevant question. Do NOT
         if (!planDetected) {
             UIController.addMessage('ai', rawReply);
             UIController.showStatus('No plan detected in AI response.', getAgentDetails());
-            // Always check for tool calls in the AI's reply, and execute them even if no plan is detected
             const toolCall = extractToolCall(rawReply);
             if (toolCall && toolCall.tool && toolCall.arguments) {
-                // Optionally, show a minimal planning bar for this tool call
                 setPlan([`Call tool: ${toolCall.tool}`]);
                 await processToolCall(toolCall);
             }
@@ -1416,123 +1425,6 @@ If you output anything else, the system will reject your response.
         a.download = 'agentStats.json';
         a.click();
         URL.revokeObjectURL(url);
-    }
-
-    // Helper: Extract plan from Gemini response text and set plan state
-    function extractAndSetGeminiPlanFromText(text) {
-        const planSteps = extractPlanFromText(text);
-        if (planSteps.length > 0) {
-            setPlan(planSteps);
-            return planSteps;
-        }
-        return [];
-    }
-
-    // Handle streaming plan response for Gemini
-    async function handleGeminiStreamingPlanResponse(model, aiMsgElement) {
-        let planDetected = false;
-        let planSteps = [];
-        let firstPlanExtracted = false;
-        await handleStreamingResponse({
-            model,
-            aiMsgElement,
-            streamFn: ApiService.streamGeminiRequest,
-            onToolCall: processToolCall,
-            onChunk: (chunk, fullText) => {
-                if (!firstPlanExtracted && fullText) {
-                    planSteps = extractAndSetGeminiPlanFromText(fullText);
-                    if (planSteps.length > 0) {
-                        firstPlanExtracted = true;
-                        planDetected = true;
-                    }
-                }
-            }
-        });
-        if (planDetected && planSteps.length > 0) {
-            await executePlanSteps(model, planSteps);
-        }
-        return planDetected;
-    }
-
-    // Handle non-streaming plan response for Gemini
-    async function handleGeminiNonStreamingPlanResponse(model, message) {
-        const session = ApiService.createGeminiSession(model);
-        const result = await session.sendMessage(message, state.chatHistory);
-        if (result.usageMetadata && typeof result.usageMetadata.totalTokenCount === 'number') {
-            state.totalTokens += result.usageMetadata.totalTokenCount;
-        }
-        const candidate = result.candidates[0];
-        let textResponse = '';
-        if (candidate.content.parts) {
-            textResponse = candidate.content.parts.map(p => p.text).join(' ');
-        } else if (candidate.content.text) {
-            textResponse = candidate.content.text;
-        }
-        const planSteps = extractAndSetGeminiPlanFromText(textResponse);
-        if (planSteps.length > 0) {
-            await executePlanSteps(model, planSteps);
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Handles a Gemini message with Chain-of-Thought plan extraction and execution.
-     * Separates streaming and non-streaming logic for clarity.
-     * @param {string} model - The model to use
-     * @param {string} message - The user message
-     */
-    async function handleGeminiMessageWithPlan(model, message) {
-        state.chatHistory.push({ role: 'user', content: message });
-        let planDetected = false;
-        let planSteps = [];
-        let rawReply = '';
-        if (state.settings.streaming) {
-            const aiMsgElement = UIController.createEmptyAIMessage();
-            let firstPlanExtracted = false;
-            await handleStreamingResponse({
-                model,
-                aiMsgElement,
-                streamFn: ApiService.streamGeminiRequest,
-                onToolCall: processToolCall,
-                onChunk: (chunk, fullText) => {
-                    rawReply = fullText;
-                    if (!firstPlanExtracted && fullText) {
-                        planSteps = extractPlanFromText(fullText);
-                        if (planSteps.length > 0) {
-                            setPlan(planSteps);
-                            firstPlanExtracted = true;
-                            planDetected = true;
-                        }
-                    }
-                }
-            });
-            if (planDetected && planSteps.length > 0) {
-                await executePlanSteps(model, planSteps);
-            }
-        } else {
-            const session = ApiService.createGeminiSession(model);
-            const result = await session.sendMessage(message, state.chatHistory);
-            if (result.usageMetadata && typeof result.usageMetadata.totalTokenCount === 'number') {
-                state.totalTokens += result.usageMetadata.totalTokenCount;
-            }
-            const candidate = result.candidates[0];
-            if (candidate.content.parts) {
-                rawReply = candidate.content.parts.map(p => p.text).join(' ');
-            } else if (candidate.content.text) {
-                rawReply = candidate.content.text;
-            }
-            planSteps = extractPlanFromText(rawReply);
-            if (planSteps.length > 0) {
-                planDetected = true;
-                await executePlanSteps(model, planSteps);
-            }
-        }
-        // Always show the AI's message, even if no plan detected
-        if (!planDetected) {
-            UIController.addMessage('ai', rawReply);
-            UIController.showStatus('No plan detected in AI response.', getAgentDetails());
-        }
     }
 
     // Public API
