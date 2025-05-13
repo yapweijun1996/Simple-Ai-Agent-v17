@@ -590,15 +590,29 @@ If you understand, follow these instructions for every relevant question. Do NOT
      */
     async function handleOpenAIMessageWithPlan(model, message) {
         let planDetected = false;
+        let rawReply = '';
         if (state.settings.streaming) {
             UIController.showStatus('Streaming response...', getAgentDetails());
             const aiMsgElement = UIController.createEmptyAIMessage();
             planDetected = await handleStreamingPlanResponse(model, aiMsgElement);
+            // Try to get the full reply from the message element (fallback)
+            rawReply = aiMsgElement && aiMsgElement.textContent ? aiMsgElement.textContent : '';
         } else {
-            planDetected = await handleNonStreamingPlanResponse(model);
+            const result = await ApiService.sendOpenAIRequest(model, state.chatHistory);
+            if (result.error) throw new Error(result.error.message);
+            if (result.usage && result.usage.total_tokens) {
+                state.totalTokens += result.usage.total_tokens;
+            }
+            rawReply = result.choices[0].message.content;
+            const planSteps = extractAndSetPlanFromText(rawReply);
+            if (planSteps.length > 0) {
+                await executePlanSteps(model, planSteps);
+                planDetected = true;
+            }
         }
-        // User feedback if no plan detected
+        // Always show the AI's message, even if no plan detected
         if (!planDetected) {
+            UIController.addMessage('ai', rawReply);
             UIController.showStatus('No plan detected in AI response.', getAgentDetails());
         }
     }
@@ -608,6 +622,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
         state.chatHistory.push({ role: 'user', content: message });
         let planDetected = false;
         let planSteps = [];
+        let rawReply = '';
         if (state.settings.streaming) {
             const aiMsgElement = UIController.createEmptyAIMessage();
             let firstPlanExtracted = false;
@@ -617,6 +632,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 streamFn: ApiService.streamGeminiRequest,
                 onToolCall: processToolCall,
                 onChunk: (chunk, fullText) => {
+                    rawReply = fullText;
                     if (!firstPlanExtracted && fullText) {
                         planSteps = extractPlanFromText(fullText);
                         if (planSteps.length > 0) {
@@ -631,27 +647,26 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 await executePlanSteps(model, planSteps);
             }
         } else {
-            // Non-streaming: extract plan from full reply
             const session = ApiService.createGeminiSession(model);
             const result = await session.sendMessage(message, state.chatHistory);
             if (result.usageMetadata && typeof result.usageMetadata.totalTokenCount === 'number') {
                 state.totalTokens += result.usageMetadata.totalTokenCount;
             }
             const candidate = result.candidates[0];
-            let textResponse = '';
             if (candidate.content.parts) {
-                textResponse = candidate.content.parts.map(p => p.text).join(' ');
+                rawReply = candidate.content.parts.map(p => p.text).join(' ');
             } else if (candidate.content.text) {
-                textResponse = candidate.content.text;
+                rawReply = candidate.content.text;
             }
-            planSteps = extractPlanFromText(textResponse);
+            planSteps = extractPlanFromText(rawReply);
             if (planSteps.length > 0) {
                 planDetected = true;
                 await executePlanSteps(model, planSteps);
             }
         }
-        // User feedback if no plan detected
+        // Always show the AI's message, even if no plan detected
         if (!planDetected) {
+            UIController.addMessage('ai', rawReply);
             UIController.showStatus('No plan detected in AI response.', getAgentDetails());
         }
     }
@@ -1459,14 +1474,52 @@ If you output anything else, the system will reject your response.
     async function handleGeminiMessageWithPlan(model, message) {
         state.chatHistory.push({ role: 'user', content: message });
         let planDetected = false;
+        let planSteps = [];
+        let rawReply = '';
         if (state.settings.streaming) {
             const aiMsgElement = UIController.createEmptyAIMessage();
-            planDetected = await handleGeminiStreamingPlanResponse(model, aiMsgElement);
+            let firstPlanExtracted = false;
+            await handleStreamingResponse({
+                model,
+                aiMsgElement,
+                streamFn: ApiService.streamGeminiRequest,
+                onToolCall: processToolCall,
+                onChunk: (chunk, fullText) => {
+                    rawReply = fullText;
+                    if (!firstPlanExtracted && fullText) {
+                        planSteps = extractPlanFromText(fullText);
+                        if (planSteps.length > 0) {
+                            setPlan(planSteps);
+                            firstPlanExtracted = true;
+                            planDetected = true;
+                        }
+                    }
+                }
+            });
+            if (planDetected && planSteps.length > 0) {
+                await executePlanSteps(model, planSteps);
+            }
         } else {
-            planDetected = await handleGeminiNonStreamingPlanResponse(model, message);
+            const session = ApiService.createGeminiSession(model);
+            const result = await session.sendMessage(message, state.chatHistory);
+            if (result.usageMetadata && typeof result.usageMetadata.totalTokenCount === 'number') {
+                state.totalTokens += result.usageMetadata.totalTokenCount;
+            }
+            const candidate = result.candidates[0];
+            if (candidate.content.parts) {
+                rawReply = candidate.content.parts.map(p => p.text).join(' ');
+            } else if (candidate.content.text) {
+                rawReply = candidate.content.text;
+            }
+            planSteps = extractPlanFromText(rawReply);
+            if (planSteps.length > 0) {
+                planDetected = true;
+                await executePlanSteps(model, planSteps);
+            }
         }
-        // User feedback if no plan detected
+        // Always show the AI's message, even if no plan detected
         if (!planDetected) {
+            UIController.addMessage('ai', rawReply);
             UIController.showStatus('No plan detected in AI response.', getAgentDetails());
         }
     }
