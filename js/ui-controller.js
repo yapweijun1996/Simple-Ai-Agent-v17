@@ -594,6 +594,41 @@ const UIController = (function() {
         if (sendButton) sendButton.disabled = messageInput.value.trim().length === 0;
     }
 
+    // --- Planning Bar Logic ---
+    function renderPlanningBar(planSteps) {
+        const bar = document.getElementById('planning-bar');
+        if (!bar) return;
+        bar.innerHTML = '';
+        if (!planSteps || !planSteps.length) {
+            bar.style.display = 'none';
+            return;
+        }
+        bar.style.display = 'block';
+        planSteps.forEach((step, idx) => {
+            const stepDiv = document.createElement('div');
+            stepDiv.className = 'planning-step planning-step--' + step.status;
+            let icon = '⏳';
+            if (step.status === 'done') icon = '✅';
+            else if (step.status === 'in-progress') icon = '🔄';
+            else if (step.status === 'error') icon = '❌';
+            stepDiv.innerHTML = `<span class="planning-step__icon">${icon}</span> <span class="planning-step__text">${Utils.escapeHtml(step.text)}</span>`;
+            if (step.details) {
+                const detailsDiv = document.createElement('div');
+                detailsDiv.className = 'planning-step__details';
+                detailsDiv.textContent = step.details;
+                stepDiv.appendChild(detailsDiv);
+            }
+            bar.appendChild(stepDiv);
+        });
+    }
+    function updatePlanningBar(planSteps) {
+        renderPlanningBar(planSteps);
+    }
+    function hidePlanningBar() {
+        const bar = document.getElementById('planning-bar');
+        if (bar) bar.style.display = 'none';
+    }
+
     // Public API
     return {
         init,
@@ -634,5 +669,8 @@ const UIController = (function() {
         showEmptyState,
         hideEmptyState,
         enableMessageInput,
+        renderPlanningBar,
+        updatePlanningBar,
+        hidePlanningBar,
     };
 })(); 

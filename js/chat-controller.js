@@ -24,7 +24,9 @@ const ChatController = (function() {
         highlightedResultIndices: new Set(),
         readCache: new Map(),
         originalUserQuestion: '',
-        toolWorkflowActive: true
+        toolWorkflowActive: true,
+        currentPlan: [],
+        planStatus: 'idle'
     };
 
     // Debug logging helper
@@ -995,6 +997,36 @@ Answer: [your final, concise answer based on the reasoning above]`;
     function isPlanMessage(text) {
         const planPatterns = [/^Plan:/i, /^Here is my plan:/i, /^My plan:/i, /^Step 1:/i, /^I will /i];
         return planPatterns.some(re => re.test(text.trim()));
+    }
+
+    // Plan tracking state
+    const PLAN_STATUS = { PENDING: 'pending', IN_PROGRESS: 'in-progress', DONE: 'done', ERROR: 'error' };
+
+    // Helper: Set the current plan (array of {text, status, details})
+    function setPlan(planSteps) {
+        state.currentPlan = planSteps.map(text => ({ text, status: PLAN_STATUS.PENDING, details: '' }));
+        state.planStatus = 'active';
+        UIController.renderPlanningBar(state.currentPlan);
+    }
+    // Helper: Update a plan step's status
+    function updatePlanStepStatus(idx, status, details = '') {
+        if (state.currentPlan[idx]) {
+            state.currentPlan[idx].status = status;
+            state.currentPlan[idx].details = details;
+            UIController.updatePlanningBar(state.currentPlan);
+        }
+    }
+    // Helper: Clear the plan
+    function clearPlan() {
+        state.currentPlan = [];
+        state.planStatus = 'idle';
+        UIController.hidePlanningBar();
+    }
+    // Plan extraction from LLM output (simple numbered list parser)
+    function extractPlanFromText(text) {
+        // Look for lines like '1. ...', '2. ...'
+        const planLines = text.split('\n').filter(line => /^\d+\.\s+/.test(line.trim()));
+        return planLines.map(line => line.replace(/^\d+\.\s+/, '').trim());
     }
 
     // Public API
