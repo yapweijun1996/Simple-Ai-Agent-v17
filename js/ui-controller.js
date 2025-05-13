@@ -604,20 +604,33 @@ const UIController = (function() {
             return;
         }
         bar.style.display = 'block';
+        // Progress bar
+        const doneCount = planSteps.filter(s => s.status === 'done').length;
+        const progress = planSteps.length ? Math.round((doneCount / planSteps.length) * 100) : 0;
+        const progressBar = document.createElement('div');
+        progressBar.className = 'planning-progress-bar';
+        progressBar.innerHTML = `<div class="planning-progress-bar__fill" style="width:${progress}%"></div>`;
+        bar.appendChild(progressBar);
+        // Steps
         planSteps.forEach((step, idx) => {
             const stepDiv = document.createElement('div');
             stepDiv.className = 'planning-step planning-step--' + step.status;
+            if (step.status === 'in-progress') stepDiv.classList.add('current');
             let icon = '⏳';
             if (step.status === 'done') icon = '✅';
             else if (step.status === 'in-progress') icon = '🔄';
             else if (step.status === 'error') icon = '❌';
-            stepDiv.innerHTML = `<span class="planning-step__icon">${icon}</span> <span class="planning-step__text">${Utils.escapeHtml(step.text)}</span>`;
+            stepDiv.innerHTML = `<span class=\"planning-step__icon\">${icon}</span> <span class=\"planning-step__text\">${Utils.escapeHtml(step.text)}</span>`;
             if (step.details) {
                 const detailsDiv = document.createElement('div');
                 detailsDiv.className = 'planning-step__details';
                 detailsDiv.textContent = step.details;
                 stepDiv.appendChild(detailsDiv);
             }
+            // Expand/collapse on click
+            stepDiv.onclick = () => {
+                stepDiv.classList.toggle('expanded');
+            };
             bar.appendChild(stepDiv);
         });
     }
