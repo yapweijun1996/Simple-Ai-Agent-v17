@@ -317,9 +317,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
      * @returns {string} - The CoT enhanced message
      */
     function enhanceWithCoT(message) {
-        return `${message}\n\nI'd like you to use Chain of Thought reasoning. Please think step-by-step before providing your final answer. Format your response like this:
-Thinking: [detailed reasoning process, exploring different angles and considerations]
-Answer: [your final, concise answer based on the reasoning above]`;
+        return `Please first output a numbered plan for how you will answer this question (as a numbered list at the top), then proceed step by step. ${message}\n\nI'd like you to use Chain of Thought reasoning. Please think step-by-step before providing your final answer. Format your response like this:\nThinking: [detailed reasoning process, exploring different angles and considerations]\nAnswer: [your final, concise answer based on the reasoning above]`;
     }
 
     // 2. Merge processCoTResponse and processPartialCoTResponse into parseCoTResponse
@@ -568,6 +566,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
 
     // Helper: handleOpenAIMessage with plan extraction
     async function handleOpenAIMessageWithPlan(model, message) {
+        let planDetected = false;
         if (state.settings.streaming) {
             UIController.showStatus('Streaming response...', getAgentDetails());
             const aiMsgElement = UIController.createEmptyAIMessage();
@@ -583,6 +582,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                         if (planSteps.length > 0) {
                             setPlan(planSteps);
                             firstPlanExtracted = true;
+                            planDetected = true;
                         }
                     }
                 }
@@ -596,15 +596,23 @@ Answer: [your final, concise answer based on the reasoning above]`;
             }
             const reply = result.choices[0].message.content;
             const planSteps = extractPlanFromText(reply);
-            if (planSteps.length > 0) setPlan(planSteps);
+            if (planSteps.length > 0) {
+                setPlan(planSteps);
+                planDetected = true;
+            }
             // Continue with normal handling
             await handleNonStreamingResponse({ model, requestFn: async () => result, onToolCall: processToolCall });
+        }
+        // User feedback if no plan detected
+        if (!planDetected) {
+            UIController.showStatus('No plan detected in AI response.', getAgentDetails());
         }
     }
 
     // Helper: handleGeminiMessage with plan extraction
     async function handleGeminiMessageWithPlan(model, message) {
         state.chatHistory.push({ role: 'user', content: message });
+        let planDetected = false;
         if (state.settings.streaming) {
             const aiMsgElement = UIController.createEmptyAIMessage();
             let firstPlanExtracted = false;
@@ -619,6 +627,7 @@ Answer: [your final, concise answer based on the reasoning above]`;
                         if (planSteps.length > 0) {
                             setPlan(planSteps);
                             firstPlanExtracted = true;
+                            planDetected = true;
                         }
                     }
                 }
@@ -638,9 +647,16 @@ Answer: [your final, concise answer based on the reasoning above]`;
                 textResponse = candidate.content.text;
             }
             const planSteps = extractPlanFromText(textResponse);
-            if (planSteps.length > 0) setPlan(planSteps);
+            if (planSteps.length > 0) {
+                setPlan(planSteps);
+                planDetected = true;
+            }
             // Continue with normal handling
             await handleGeminiNonStreaming(model, message);
+        }
+        // User feedback if no plan detected
+        if (!planDetected) {
+            UIController.showStatus('No plan detected in AI response.', getAgentDetails());
         }
     }
 
@@ -1077,11 +1093,20 @@ Answer: [your final, concise answer based on the reasoning above]`;
         state.planStatus = 'idle';
         UIController.hidePlanningBar();
     }
-    // Plan extraction from LLM output (simple numbered list parser)
+    // Plan extraction from LLM output (robust parser)
     function extractPlanFromText(text) {
-        // Look for lines like '1. ...', '2. ...'
-        const planLines = text.split('\n').filter(line => /^\d+\.\s+/.test(line.trim()));
-        return planLines.map(line => line.replace(/^\d+\.\s+/, '').trim());
+        // Support '1. ...', 'Step 1: ...', '- ...'
+        const planLines = text.split('\n').filter(line =>
+            /^\d+\.\s+/.test(line.trim()) ||
+            /^Step\s*\d+[:.]/i.test(line.trim()) ||
+            /^-\s+/.test(line.trim())
+        );
+        return planLines.map(line =>
+            line.replace(/^\d+\.\s+/, '')
+                .replace(/^Step\s*\d+[:.]\s*/i, '')
+                .replace(/^-+\s*/, '')
+                .trim()
+        );
     }
 
     // Public API
