@@ -644,6 +644,52 @@ Answer: [your final, concise answer based on the reasoning above]`;
         }
     }
 
+    // Helper: Handle non-streaming Gemini response
+    async function handleGeminiNonStreaming(model, message) {
+        try {
+            const session = ApiService.createGeminiSession(model);
+            const result = await session.sendMessage(message, state.chatHistory);
+            if (result.usageMetadata && typeof result.usageMetadata.totalTokenCount === 'number') {
+                state.totalTokens += result.usageMetadata.totalTokenCount;
+            }
+            const candidate = result.candidates[0];
+            let textResponse = '';
+            if (candidate.content.parts) {
+                textResponse = candidate.content.parts.map(p => p.text).join(' ');
+            } else if (candidate.content.text) {
+                textResponse = candidate.content.text;
+            }
+            const toolCall = extractToolCall(textResponse);
+            if (toolCall && toolCall.tool && toolCall.arguments) {
+                await processToolCall(toolCall);
+                return;
+            }
+            if (state.settings.enableCoT) {
+                const processed = parseCoTResponse(textResponse);
+                if (processed.thinking) {
+                    debugLog('AI Thinking:', processed.thinking);
+                }
+                state.chatHistory.push({ role: 'assistant', content: textResponse });
+                const displayText = formatResponseForDisplay(processed);
+                if (isPlanMessage(displayText)) {
+                    UIController.addMessage('ai', displayText, 'plan');
+                } else {
+                    UIController.addMessage('ai', displayText);
+                }
+            } else {
+                state.chatHistory.push({ role: 'assistant', content: textResponse });
+                UIController.addMessage('ai', textResponse);
+            }
+        } catch (err) {
+            throw err;
+        } finally {
+            // Always re-enable message input
+            UIController.hideSpinner();
+            UIController.clearStatus();
+            UIController.enableMessageInput && UIController.enableMessageInput();
+        }
+    }
+
     // Enhanced processToolCall using registry and validation
     async function processToolCall(call) {
         debugLog('processToolCall', call);
