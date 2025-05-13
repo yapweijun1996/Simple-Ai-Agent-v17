@@ -619,17 +619,26 @@ const UIController = (function() {
         if (planningBarCollapsed) {
             return;
         }
-        // Progress bar with animation
+        // Progress bar with animation and step count
         const doneCount = planSteps.filter(s => s.status === 'done').length;
         const progress = planSteps.length ? Math.round((doneCount / planSteps.length) * 100) : 0;
         const progressBar = document.createElement('div');
         progressBar.className = 'planning-progress-bar';
         progressBar.innerHTML = `<div class="planning-progress-bar__fill" style="width:${progress}%; transition: width 0.5s;"></div>`;
         bar.appendChild(progressBar);
+        // Step count display
+        const stepCountDiv = document.createElement('div');
+        stepCountDiv.className = 'planning-bar__step-count';
+        const currentIdx = planSteps.findIndex(s => s.status === 'in-progress');
+        stepCountDiv.innerHTML = currentIdx !== -1 ? `Step <strong>${currentIdx + 1}</strong> of <strong>${planSteps.length}</strong>` : `${doneCount} of ${planSteps.length} steps done`;
+        bar.appendChild(stepCountDiv);
         // Steps
         planSteps.forEach((step, idx) => {
             const stepDiv = document.createElement('div');
             stepDiv.className = 'planning-step planning-step--' + step.status;
+            stepDiv.setAttribute('tabindex', '0');
+            stepDiv.setAttribute('role', 'button');
+            stepDiv.setAttribute('aria-expanded', step.status === 'in-progress' || stepDiv.classList.contains('expanded'));
             if (step.status === 'in-progress') stepDiv.classList.add('current');
             let icon = '⏳', statusLabel = 'Pending';
             if (step.status === 'done') { icon = '✅'; statusLabel = 'Done'; }
@@ -640,7 +649,9 @@ const UIController = (function() {
             if (step.details) {
                 detailsIndicator = '<span class="planning-step__details-indicator" title="Has details">🛈</span>';
             }
-            stepDiv.innerHTML = `<span class="planning-step__icon">${icon}</span> <span class="planning-step__text">${Utils.escapeHtml(step.text)}</span> <span class="planning-step__status-label">${statusLabel}</span> ${detailsIndicator}`;
+            // Step number
+            const stepNumber = `<span class="planning-step__number">${idx + 1}.</span>`;
+            stepDiv.innerHTML = `${stepNumber} <span class="planning-step__icon">${icon}</span> <span class="planning-step__text">${Utils.escapeHtml(step.text)}</span> <span class="planning-step__status-label">${statusLabel}</span> ${detailsIndicator}`;
             // Timestamps/duration (optional, if present)
             if (step.startedAt || step.endedAt) {
                 const tsDiv = document.createElement('div');
@@ -655,11 +666,17 @@ const UIController = (function() {
                 tsDiv.textContent = tsText;
                 stepDiv.appendChild(tsDiv);
             }
-            // Reasoning/Thinking display (new)
+            // Reasoning/Thinking display
             if (step.reasoning && step.reasoning.length > 0) {
                 const reasoningDiv = document.createElement('div');
                 reasoningDiv.className = 'planning-step__reasoning';
                 reasoningDiv.innerHTML = `<strong>Reasoning:</strong> ${Utils.escapeHtml(step.reasoning)}`;
+                // Show reasoning by default for current step, otherwise collapsed
+                if (step.status === 'in-progress' || stepDiv.classList.contains('expanded')) {
+                    reasoningDiv.style.display = 'block';
+                } else {
+                    reasoningDiv.style.display = 'none';
+                }
                 stepDiv.appendChild(reasoningDiv);
             }
             // Details preview on hover, expand/collapse on click
@@ -667,12 +684,37 @@ const UIController = (function() {
                 const detailsDiv = document.createElement('div');
                 detailsDiv.className = 'planning-step__details';
                 detailsDiv.textContent = step.details;
+                if (step.status === 'in-progress' || stepDiv.classList.contains('expanded')) {
+                    detailsDiv.style.display = 'block';
+                } else {
+                    detailsDiv.style.display = 'none';
+                }
                 stepDiv.appendChild(detailsDiv);
                 stepDiv.title = step.details;
             }
+            // Click/keyboard to expand/collapse
             stepDiv.onclick = () => {
-                stepDiv.classList.toggle('expanded');
+                if (step.status !== 'in-progress') {
+                    stepDiv.classList.toggle('expanded');
+                    const reasoning = stepDiv.querySelector('.planning-step__reasoning');
+                    if (reasoning) reasoning.style.display = stepDiv.classList.contains('expanded') ? 'block' : 'none';
+                    const details = stepDiv.querySelector('.planning-step__details');
+                    if (details) details.style.display = stepDiv.classList.contains('expanded') ? 'block' : 'none';
+                    stepDiv.setAttribute('aria-expanded', stepDiv.classList.contains('expanded'));
+                }
             };
+            stepDiv.onkeydown = (e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && step.status !== 'in-progress') {
+                    stepDiv.click();
+                }
+            };
+            // Animate current step
+            if (step.status === 'in-progress') {
+                stepDiv.style.boxShadow = '0 0 12px 2px #ffd70088';
+                stepDiv.style.transform = 'scale(1.04)';
+                stepDiv.style.background = 'linear-gradient(90deg, #fffbe6 80%, #fff7c2 100%)';
+                stepDiv.style.transition = 'all 0.3s';
+            }
             bar.appendChild(stepDiv);
         });
         // Plan summary
