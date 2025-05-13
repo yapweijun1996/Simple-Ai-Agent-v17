@@ -218,7 +218,10 @@ Begin Reasoning Now:
                 const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
                 state.chatHistory.push({ role: 'assistant', content: plainTextSnippet });
                 // Collect snippets for summarization
-                state.readSnippets.push(snippet);
+                if (snippet) {
+                    if (!state.readSnippets) state.readSnippets = [];
+                    state.readSnippets.push(snippet);
+                }
                 // (Manual summarization removed: summarization now only happens in auto-read workflow)
             } catch (err) {
                 UIController.hideSpinner();
@@ -652,7 +655,13 @@ If you understand, follow these instructions for every relevant question. Do NOT
         }
         debugLog('[Plan] All steps complete. Synthesizing final answer.');
         // After all steps, synthesize and present the final answer
-        await synthesizeFinalAnswer('');
+        let summary = '';
+        if (state.readSnippets && state.readSnippets.length > 0) {
+            summary = state.readSnippets.join('\n---\n');
+        } else {
+            summary = 'No relevant information was found during the research steps.';
+        }
+        await synthesizeFinalAnswer(summary);
     }
 
     // Refactor handleOpenAIMessageWithPlan
@@ -1074,7 +1083,8 @@ If you understand, follow these instructions for every relevant question. Do NOT
     async function synthesizeFinalAnswer(summaries) {
         debugLog('[synthesizeFinalAnswer] summaries:', summaries);
         if (!summaries || !state.originalUserQuestion) {
-            debugLog('[synthesizeFinalAnswer] No summaries or original question, aborting.');
+            UIController.addMessage('ai', 'Sorry, I could not generate a final answer. No relevant information was found during the research steps. Please try rephrasing your question or providing more details.');
+            state.toolWorkflowActive = false;
             return;
         }
         const selectedModel = SettingsController.getSettings().selectedModel;
