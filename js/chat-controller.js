@@ -50,6 +50,10 @@ const ChatController = (function() {
         debugLog('[extractToolCall] Raw text:', text);
         // Remove code block markers (```json, ```tool_code, or ```)
         text = text.replace(/```(?:json|tool_code)?/gi, '').replace(/```/g, '').trim();
+        // Remove trailing commas before } or ]
+        text = text.replace(/,\s*([}\]])/g, '$1');
+        // Remove comments (// ... or /* ... */)
+        text = text.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
         // Prefer tool call wrapped in unique delimiters
         const match = text.match(/\[\[TOOLCALL\]\]([\s\S]*?)\[\[\/TOOLCALL\]\]/);
         let jsonStr = null;
@@ -61,19 +65,43 @@ const ChatController = (function() {
             if (jsonMatch) {
                 jsonStr = jsonMatch[0];
             } else {
+                // Try to extract tool call from common patterns (e.g., tool_call, tool, arguments)
+                // e.g. { tool: 'web_search', query: 'x' }
+                const toolCallPattern = /tool\s*[:=]\s*['\"]?(\w+)['\"]?[,\s]+(arguments|query)\s*[:=]\s*([\{\[].*[\}\]]|['\"].*?['\"])/s;
+                const m = text.match(toolCallPattern);
+                if (m) {
+                    if (m[2] === 'arguments') {
+                        try {
+                            const args = JSON.parse(m[3]);
+                            return { tool: m[1], arguments: args };
+                        } catch {}
+                    } else if (m[2] === 'query') {
+                        return { tool: m[1], arguments: { query: m[3].replace(/['\"]/g, '') } };
+                    }
+                }
                 return null;
             }
         }
         if (!jsonStr) return null;
         jsonStr = jsonStr.trim();
+        // Try to parse JSON, fallback to forgiving parser if needed
         let obj;
         try {
             obj = JSON.parse(jsonStr);
         } catch (err) {
-            if (state.settings && state.settings.debug) {
-                console.warn('Tool JSON parse error:', err, 'from', jsonStr);
+            // Try to fix common JSON issues: single quotes, trailing commas, etc.
+            let safe = jsonStr
+                .replace(/'/g, '"')
+                .replace(/,\s*([}\]])/g, '$1');
+            try {
+                obj = JSON.parse(safe);
+            } catch (err2) {
+                if (state.settings && state.settings.debug) {
+                    console.warn('Tool JSON parse error:', err, 'from', jsonStr);
+                    console.warn('Tool JSON parse error (fallback):', err2, 'from', safe);
+                }
+                return null;
             }
-            return null;
         }
         // Accept alternative keys and normalize
         if (obj.tool && typeof obj.arguments === 'object') {
@@ -87,6 +115,14 @@ const ChatController = (function() {
         }
         if (obj.tool_code && obj.url) {
             return { tool: obj.tool_code, arguments: { url: obj.url } };
+        }
+        // Handle { tool: 'web_search', query: 'x' }
+        if (obj.tool && obj.query) {
+            return { tool: obj.tool, arguments: { query: obj.query } };
+        }
+        // Handle { tool: 'web_search', queries: [...] }
+        if (obj.tool && obj.queries) {
+            return { tool: obj.tool, arguments: { queries: obj.queries } };
         }
         return null;
     }
