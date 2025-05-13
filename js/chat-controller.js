@@ -691,78 +691,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
         debugLog('[Plan] Detected plan steps:', planSteps);
         setPlan(planSteps);
         for (let idx = 0; idx < planSteps.length; idx++) {
-            debugLog(`[Plan] Starting step ${idx + 1}:`, planSteps[idx]);
-            // Mark current step as in-progress
-            updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS);
-            // Generate reasoning and/or take action for this step
-            const stepText = planSteps[idx];
-            // For now, just ask the LLM to reason about this step and take action if needed
-            const prompt = `Step ${idx + 1}: ${stepText}\n\nPlease reason step-by-step and take any necessary tool actions before marking this step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.`;
-            const currentSettings = SettingsController.getSettings();
-            let reply = '';
-            if (model.startsWith('gpt')) {
-                const res = await ApiService.sendOpenAIRequest(model, [
-                    { role: 'system', content: 'You are an AI assistant following a multi-step plan. For each step, reason step-by-step and take any necessary tool actions before marking the step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.' },
-                    { role: 'user', content: prompt }
-                ]);
-                reply = res.choices[0].message.content;
-            } else if (model.startsWith('gemini') || model.startsWith('gemma')) {
-                const session = ApiService.createGeminiSession(model);
-                const chatHistory = [
-                    { role: 'system', content: 'You are an AI assistant following a multi-step plan. For each step, reason step-by-step and take any necessary tool actions before marking the step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.' },
-                    { role: 'user', content: prompt }
-                ];
-                const result = await session.sendMessage(prompt, chatHistory);
-                const candidate = result.candidates[0];
-                if (candidate.content.parts) {
-                    reply = candidate.content.parts.map(p => p.text).join(' ');
-                } else if (candidate.content.text) {
-                    reply = candidate.content.text;
-                }
-            }
-            // Try to extract and execute a tool call from the reply
-            const toolCall = extractToolCall(reply);
-            if (toolCall && toolCall.tool && toolCall.arguments) {
-                debugLog('[Plan] Tool call detected in step:', toolCall);
-                await processToolCall(toolCall);
-                // Optionally, after tool execution, ask for a summary/answer for the step
-                // For now, prompt the LLM for a summary/answer
-                let followupReply = '';
-                const followupPrompt = `Step ${idx + 1}: ${stepText}\n\nThe tool call has been executed. Please summarize what was learned and provide the next reasoning or answer for this step.`;
-                if (model.startsWith('gpt')) {
-                    const res = await ApiService.sendOpenAIRequest(model, [
-                        { role: 'system', content: 'You are an AI assistant following a multi-step plan. Summarize what was learned from the tool call and provide the next reasoning or answer.' },
-                        { role: 'user', content: followupPrompt }
-                    ]);
-                    followupReply = res.choices[0].message.content;
-                } else if (model.startsWith('gemini') || model.startsWith('gemma')) {
-                    const session = ApiService.createGeminiSession(model);
-                    const chatHistory = [
-                        { role: 'system', content: 'You are an AI assistant following a multi-step plan. Summarize what was learned from the tool call and provide the next reasoning or answer.' },
-                        { role: 'user', content: followupPrompt }
-                    ];
-                    const result = await session.sendMessage(followupPrompt, chatHistory);
-                    const candidate = result.candidates[0];
-                    if (candidate.content.parts) {
-                        followupReply = candidate.content.parts.map(p => p.text).join(' ');
-                    } else if (candidate.content.text) {
-                        followupReply = candidate.content.text;
-                    }
-                }
-                const processed = parseCoTResponse(followupReply);
-                if (processed.thinking) {
-                    updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
-                }
-            } else {
-                // If no tool call, just parse reasoning/answer as before
-                const processed = parseCoTResponse(reply);
-                if (processed.thinking) {
-                    updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
-                }
-            }
-            // Mark step as done
-            updatePlanStepStatus(idx, PLAN_STATUS.DONE);
-            debugLog(`[Plan] Completed step ${idx + 1}`);
+            await executeSinglePlanStep(model, planSteps[idx], idx);
         }
         debugLog('[Plan] All steps complete. Synthesizing final answer.');
         // After all steps, synthesize and present the final answer
@@ -775,46 +704,143 @@ If you understand, follow these instructions for every relevant question. Do NOT
         await synthesizeFinalAnswer(summary);
     }
 
-    // Refactor handleOpenAIMessageWithPlan
-    async function handleOpenAIMessageWithPlan(model, message) {
+    // Helper: Execute a single plan step (reason, tool call, summary)
+    async function executeSinglePlanStep(model, stepText, idx) {
+        updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS);
+        // Generate reasoning and/or take action for this step
+        const prompt = `Step ${idx + 1}: ${stepText}\n\nPlease reason step-by-step and take any necessary tool actions before marking this step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.`;
+        const currentSettings = SettingsController.getSettings();
+        let reply = '';
+        if (model.startsWith('gpt')) {
+            const res = await ApiService.sendOpenAIRequest(model, [
+                { role: 'system', content: 'You are an AI assistant following a multi-step plan. For each step, reason step-by-step and take any necessary tool actions before marking the step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.' },
+                { role: 'user', content: prompt }
+            ]);
+            reply = res.choices[0].message.content;
+        } else if (model.startsWith('gemini') || model.startsWith('gemma')) {
+            const session = ApiService.createGeminiSession(model);
+            const chatHistory = [
+                { role: 'system', content: 'You are an AI assistant following a multi-step plan. For each step, reason step-by-step and take any necessary tool actions before marking the step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.' },
+                { role: 'user', content: prompt }
+            ];
+            const result = await session.sendMessage(prompt, chatHistory);
+            const candidate = result.candidates[0];
+            if (candidate.content.parts) {
+                reply = candidate.content.parts.map(p => p.text).join(' ');
+            } else if (candidate.content.text) {
+                reply = candidate.content.text;
+            }
+        }
+        // Try to extract and execute a tool call from the reply
+        const toolCall = extractToolCall(reply);
+        if (toolCall && toolCall.tool && toolCall.arguments) {
+            debugLog('[Plan] Tool call detected in step:', toolCall);
+            await processToolCall(toolCall);
+            // Optionally, after tool execution, ask for a summary/answer for the step
+            let followupReply = '';
+            const followupPrompt = `Step ${idx + 1}: ${stepText}\n\nThe tool call has been executed. Please summarize what was learned and provide the next reasoning or answer for this step.`;
+            if (model.startsWith('gpt')) {
+                const res = await ApiService.sendOpenAIRequest(model, [
+                    { role: 'system', content: 'You are an AI assistant following a multi-step plan. Summarize what was learned from the tool call and provide the next reasoning or answer.' },
+                    { role: 'user', content: followupPrompt }
+                ]);
+                followupReply = res.choices[0].message.content;
+            } else if (model.startsWith('gemini') || model.startsWith('gemma')) {
+                const session = ApiService.createGeminiSession(model);
+                const chatHistory = [
+                    { role: 'system', content: 'You are an AI assistant following a multi-step plan. Summarize what was learned from the tool call and provide the next reasoning or answer.' },
+                    { role: 'user', content: followupPrompt }
+                ];
+                const result = await session.sendMessage(followupPrompt, chatHistory);
+                const candidate = result.candidates[0];
+                if (candidate.content.parts) {
+                    followupReply = candidate.content.parts.map(p => p.text).join(' ');
+                } else if (candidate.content.text) {
+                    followupReply = candidate.content.text;
+                }
+            }
+            const processed = parseCoTResponse(followupReply);
+            if (processed.thinking) {
+                updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
+            }
+        } else {
+            // If no tool call, just parse reasoning/answer as before
+            const processed = parseCoTResponse(reply);
+            if (processed.thinking) {
+                updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
+            }
+        }
+        // Mark step as done
+        updatePlanStepStatus(idx, PLAN_STATUS.DONE);
+        debugLog(`[Plan] Completed step ${idx + 1}`);
+    }
+
+    // Helper: Extract plan from text and set plan state
+    function extractAndSetPlanFromText(text) {
+        const planSteps = extractPlanFromText(text);
+        if (planSteps.length > 0) {
+            setPlan(planSteps);
+            return planSteps;
+        }
+        return [];
+    }
+
+    // Handle streaming plan response
+    async function handleStreamingPlanResponse(model, aiMsgElement) {
         let planDetected = false;
         let planSteps = [];
+        let firstPlanExtracted = false;
+        await handleStreamingResponse({
+            model,
+            aiMsgElement,
+            streamFn: ApiService.streamOpenAIRequest,
+            onToolCall: processToolCall,
+            onChunk: (chunk, fullText) => {
+                if (!firstPlanExtracted && fullText) {
+                    planSteps = extractAndSetPlanFromText(fullText);
+                    if (planSteps.length > 0) {
+                        firstPlanExtracted = true;
+                        planDetected = true;
+                    }
+                }
+            }
+        });
+        if (planDetected && planSteps.length > 0) {
+            await executePlanSteps(model, planSteps);
+        }
+        return planDetected;
+    }
+
+    // Handle non-streaming plan response
+    async function handleNonStreamingPlanResponse(model) {
+        const result = await ApiService.sendOpenAIRequest(model, state.chatHistory);
+        if (result.error) throw new Error(result.error.message);
+        if (result.usage && result.usage.total_tokens) {
+            state.totalTokens += result.usage.total_tokens;
+        }
+        const reply = result.choices[0].message.content;
+        const planSteps = extractAndSetPlanFromText(reply);
+        if (planSteps.length > 0) {
+            await executePlanSteps(model, planSteps);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Handles an OpenAI message with Chain-of-Thought plan extraction and execution.
+     * Separates streaming and non-streaming logic for clarity.
+     * @param {string} model - The model to use
+     * @param {string} message - The user message
+     */
+    async function handleOpenAIMessageWithPlan(model, message) {
+        let planDetected = false;
         if (state.settings.streaming) {
             UIController.showStatus('Streaming response...', getAgentDetails());
             const aiMsgElement = UIController.createEmptyAIMessage();
-            let firstPlanExtracted = false;
-            await handleStreamingResponse({
-                model,
-                aiMsgElement,
-                streamFn: ApiService.streamOpenAIRequest,
-                onToolCall: processToolCall,
-                onChunk: (chunk, fullText) => {
-                    if (!firstPlanExtracted && fullText) {
-                        planSteps = extractPlanFromText(fullText);
-                        if (planSteps.length > 0) {
-                            setPlan(planSteps);
-                            firstPlanExtracted = true;
-                            planDetected = true;
-                        }
-                    }
-                }
-            });
-            if (planDetected && planSteps.length > 0) {
-                await executePlanSteps(model, planSteps);
-            }
+            planDetected = await handleStreamingPlanResponse(model, aiMsgElement);
         } else {
-            // Non-streaming: extract plan from full reply
-            const result = await ApiService.sendOpenAIRequest(model, state.chatHistory);
-            if (result.error) throw new Error(result.error.message);
-            if (result.usage && result.usage.total_tokens) {
-                state.totalTokens += result.usage.total_tokens;
-            }
-            const reply = result.choices[0].message.content;
-            planSteps = extractPlanFromText(reply);
-            if (planSteps.length > 0) {
-                planDetected = true;
-                await executePlanSteps(model, planSteps);
-            }
+            planDetected = await handleNonStreamingPlanResponse(model);
         }
         // User feedback if no plan detected
         if (!planDetected) {
@@ -875,12 +901,8 @@ If you understand, follow these instructions for every relevant question. Do NOT
         }
     }
 
-    // Enhanced processToolCall using registry and validation
-    async function processToolCall(call) {
-        debugLog('[ToolCall] Received:', pretty(call));
-        if (!state.toolWorkflowActive) return;
-        const { tool, arguments: args, skipContinue } = call;
-        // Tool call loop protection
+    // Helper: Tool call loop protection
+    function isToolCallLoop(tool, args) {
         const callSignature = JSON.stringify({ tool, args });
         if (state.lastToolCall === callSignature) {
             state.lastToolCallCount++;
@@ -888,26 +910,52 @@ If you understand, follow these instructions for every relevant question. Do NOT
             state.lastToolCall = callSignature;
             state.lastToolCallCount = 1;
         }
-        if (state.lastToolCallCount > state.MAX_TOOL_CALL_REPEAT) {
-            debugLog('[ToolCall] Loop detected, aborting.');
-            UIController.addMessage('ai', `Error: Tool call loop detected. The same tool call has been made more than ${state.MAX_TOOL_CALL_REPEAT} times in a row. Stopping to prevent infinite loop.`);
-            return;
-        }
-        // Log tool call
+        return state.lastToolCallCount > state.MAX_TOOL_CALL_REPEAT;
+    }
+
+    // Helper: Log tool call
+    function logToolCall(tool, args) {
         state.toolCallHistory.push({ tool, args, timestamp: new Date().toISOString() });
+    }
+
+    // Helper: Execute tool handler with error handling
+    async function executeToolHandler(tool, args) {
         if (!toolHandlers[tool]) {
             debugLog(`[ToolCall] No handler found for tool: ${tool}`);
             UIController.addMessage('ai', `Error: No handler found for tool "${tool}". Please check tool configuration.`);
-            return;
+            return false;
         }
         try {
             debugLog(`[ToolCall] Executing handler for: ${tool}`, pretty(args));
             await toolHandlers[tool](args);
             debugLog(`[ToolCall] Handler for ${tool} completed.`);
+            return true;
         } catch (err) {
             debugLog(`[ToolCall] Error in handler for ${tool}:`, err);
             UIController.addMessage('ai', `Tool call failed: ${err && err.message ? err.message : err}`);
+            return false;
         }
+    }
+
+    /**
+     * Processes a tool call, including loop protection, logging, handler execution, and workflow continuation.
+     * @param {Object} call - The tool call object
+     */
+    async function processToolCall(call) {
+        debugLog('[ToolCall] Received:', pretty(call));
+        if (!state.toolWorkflowActive) return;
+        const { tool, arguments: args, skipContinue } = call;
+        // Tool call loop protection
+        if (isToolCallLoop(tool, args)) {
+            debugLog('[ToolCall] Loop detected, aborting.');
+            UIController.addMessage('ai', `Error: Tool call loop detected. The same tool call has been made more than ${state.MAX_TOOL_CALL_REPEAT} times in a row. Stopping to prevent infinite loop.`);
+            return;
+        }
+        // Log tool call
+        logToolCall(tool, args);
+        // Execute tool handler
+        const handlerSuccess = await executeToolHandler(tool, args);
+        if (!handlerSuccess) return;
         // Only continue reasoning if the last AI reply was NOT a tool call
         if (!skipContinue) {
             const lastEntry = state.chatHistory[state.chatHistory.length - 1];
@@ -1577,6 +1625,85 @@ If you output anything else, the system will reject your response.
         a.download = 'agentStats.json';
         a.click();
         URL.revokeObjectURL(url);
+    }
+
+    // Helper: Extract plan from Gemini response text and set plan state
+    function extractAndSetGeminiPlanFromText(text) {
+        const planSteps = extractPlanFromText(text);
+        if (planSteps.length > 0) {
+            setPlan(planSteps);
+            return planSteps;
+        }
+        return [];
+    }
+
+    // Handle streaming plan response for Gemini
+    async function handleGeminiStreamingPlanResponse(model, aiMsgElement) {
+        let planDetected = false;
+        let planSteps = [];
+        let firstPlanExtracted = false;
+        await handleStreamingResponse({
+            model,
+            aiMsgElement,
+            streamFn: ApiService.streamGeminiRequest,
+            onToolCall: processToolCall,
+            onChunk: (chunk, fullText) => {
+                if (!firstPlanExtracted && fullText) {
+                    planSteps = extractAndSetGeminiPlanFromText(fullText);
+                    if (planSteps.length > 0) {
+                        firstPlanExtracted = true;
+                        planDetected = true;
+                    }
+                }
+            }
+        });
+        if (planDetected && planSteps.length > 0) {
+            await executePlanSteps(model, planSteps);
+        }
+        return planDetected;
+    }
+
+    // Handle non-streaming plan response for Gemini
+    async function handleGeminiNonStreamingPlanResponse(model, message) {
+        const session = ApiService.createGeminiSession(model);
+        const result = await session.sendMessage(message, state.chatHistory);
+        if (result.usageMetadata && typeof result.usageMetadata.totalTokenCount === 'number') {
+            state.totalTokens += result.usageMetadata.totalTokenCount;
+        }
+        const candidate = result.candidates[0];
+        let textResponse = '';
+        if (candidate.content.parts) {
+            textResponse = candidate.content.parts.map(p => p.text).join(' ');
+        } else if (candidate.content.text) {
+            textResponse = candidate.content.text;
+        }
+        const planSteps = extractAndSetGeminiPlanFromText(textResponse);
+        if (planSteps.length > 0) {
+            await executePlanSteps(model, planSteps);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Handles a Gemini message with Chain-of-Thought plan extraction and execution.
+     * Separates streaming and non-streaming logic for clarity.
+     * @param {string} model - The model to use
+     * @param {string} message - The user message
+     */
+    async function handleGeminiMessageWithPlan(model, message) {
+        state.chatHistory.push({ role: 'user', content: message });
+        let planDetected = false;
+        if (state.settings.streaming) {
+            const aiMsgElement = UIController.createEmptyAIMessage();
+            planDetected = await handleGeminiStreamingPlanResponse(model, aiMsgElement);
+        } else {
+            planDetected = await handleGeminiNonStreamingPlanResponse(model, message);
+        }
+        // User feedback if no plan detected
+        if (!planDetected) {
+            UIController.showStatus('No plan detected in AI response.', getAgentDetails());
+        }
     }
 
     // Public API
