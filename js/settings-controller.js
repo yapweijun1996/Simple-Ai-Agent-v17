@@ -22,11 +22,13 @@ const SettingsController = (function() {
      */
     function createSettingsModal() {
         if (settingsModal) return;
-        
         // Create modal from template
         settingsModal = Utils.createFromTemplate('settings-modal-template');
         document.body.appendChild(settingsModal);
-        
+        // Add ARIA attributes for accessibility
+        settingsModal.setAttribute('role', 'dialog');
+        settingsModal.setAttribute('aria-modal', 'true');
+        settingsModal.setAttribute('aria-labelledby', 'settings-modal-title');
         // Set initial values based on current settings
         document.getElementById('streaming-toggle').checked = settings.streaming;
         document.getElementById('cot-toggle').checked = settings.enableCoT;
@@ -34,18 +36,20 @@ const SettingsController = (function() {
         document.getElementById('model-select').value = settings.selectedModel;
         document.getElementById('dark-mode-toggle').checked = settings.darkMode;
         document.getElementById('debug-toggle').checked = settings.debug;
-        
-        // Add event listeners
+        // Remove previous event listeners if any
+        const saveBtn = document.getElementById('save-settings');
+        const closeBtn = document.getElementById('close-settings');
+        saveBtn.replaceWith(saveBtn.cloneNode(true));
+        closeBtn.replaceWith(closeBtn.cloneNode(true));
+        // Re-query after replace
         document.getElementById('save-settings').addEventListener('click', saveSettings);
         document.getElementById('close-settings').addEventListener('click', hideSettingsModal);
-        
         // Close when clicking outside the modal content
-        settingsModal.addEventListener('click', function(event) {
+        settingsModal.addEventListener('mousedown', function(event) {
             if (event.target === settingsModal) {
                 hideSettingsModal();
             }
         });
-
         // Focus trap logic
         const modalContent = settingsModal.querySelector('.settings-modal__content');
         const focusableSelectors = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -57,6 +61,7 @@ const SettingsController = (function() {
                 focusableEls = Array.from(modalContent.querySelectorAll(focusableSelectors));
                 firstEl = focusableEls[0];
                 lastEl = focusableEls[focusableEls.length - 1];
+                if (focusableEls.length === 0) return;
                 if (e.shiftKey) {
                     if (document.activeElement === firstEl) {
                         e.preventDefault();

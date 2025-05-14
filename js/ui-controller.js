@@ -22,7 +22,12 @@ const UIController = (function() {
     function init() {
         // Show the chat container
         document.getElementById('chat-container').style.display = 'flex';
-        
+        // Ensure planning bar is always present and has ARIA attributes
+        const planningBar = document.getElementById('planning-bar');
+        if (planningBar) {
+            planningBar.setAttribute('role', 'region');
+            planningBar.setAttribute('aria-label', 'Plan Progress');
+        }
         // Add enter key handler for message input
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
@@ -45,6 +50,10 @@ const UIController = (function() {
         // Set initial state of send button
         if (sendButton) {
             sendButton.disabled = messageInput.value.trim().length === 0;
+        }
+        // Accessibility: set aria-label for send button
+        if (sendButton) {
+            sendButton.setAttribute('aria-label', 'Send message');
         }
         
         // Add global event delegation for thinking toggle buttons
@@ -582,11 +591,14 @@ const UIController = (function() {
     function renderPlanningBar(planSteps) {
         const bar = document.getElementById('planning-bar');
         if (!bar) return;
+        // Always clear bar first
         bar.innerHTML = '';
+        // If no plan steps, hide bar and return
         if (!planSteps || !planSteps.length) {
             bar.style.display = 'none';
             return;
         }
+        // Show bar if plan steps exist
         bar.style.display = 'block';
         bar.setAttribute('role', 'region');
         bar.setAttribute('aria-label', 'Plan Progress');

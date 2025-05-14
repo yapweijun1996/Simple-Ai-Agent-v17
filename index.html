@@ -95,9 +95,9 @@
 
     <!-- Settings modal template -->
     <template id="settings-modal-template">
-        <div id="settings-modal" class="settings-modal">
+        <div id="settings-modal" class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
             <div class="settings-modal__content">
-                <h3 class="settings-modal__title">Settings</h3>
+                <h3 class="settings-modal__title" id="settings-modal-title">Settings</h3>
                 <div class="settings-modal__item">
                     <label for="model-select" class="settings-modal__label">AI Model:</label>
                     <select id="model-select" class="chat-app__model-select settings-modal__select" aria-label="Select AI Model" title="Choose which AI model to use. Different models may have different capabilities and speeds.">
