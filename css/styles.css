@@ -199,24 +199,22 @@ body:not(.light-mode) .chat-app__message.user-message {
 }
 
 .chat-app__message.ai-message {
-    background: linear-gradient(135deg, var(--ai-msg-bg) 80%, #e0e7ef 100%);
-    align-self: flex-start;
-    text-align: left;
-    padding: 14px 18px 14px 18px;
-    border-radius: 18px 18px 18px 4px;
-    color: #1e293b;
-    box-shadow: 0 2px 12px #2563eb22;
+    background: linear-gradient(135deg, #f5faff 80%, #e0e7ef 100%);
+    color: #1e293b !important;
     border: 2px solid #e0e7ef;
+    box-shadow: 0 2px 12px #2563eb22;
 }
-
 body:not(.light-mode) .chat-app__message.ai-message {
-    background: linear-gradient(135deg, var(--ai-msg-bg) 80%, #23272e 100%);
-    color: #e0e7ef;
+    background: linear-gradient(135deg, #23272e 80%, #2a3140 100%);
+    color: #eaf3ff !important;
     border: 2px solid #23272e;
     box-shadow: 0 2px 12px #2563eb22;
 }
 
 .chat-app__message-content {
+    color: inherit !important;
+    opacity: 1 !important;
+    text-shadow: 0 1px 2px #fff8, 0 0.5px 1px #0001;
     flex: 1;
     min-width: 0;
     width: 100%;
@@ -225,6 +223,10 @@ body:not(.light-mode) .chat-app__message.ai-message {
     font-size: 1.05rem;
     line-height: 1.6;
     padding-bottom: 1.2em; /* Add space for timestamp below */
+}
+body:not(.light-mode) .chat-app__message-content {
+    color: #eaf3ff !important;
+    text-shadow: 0 1px 2px #23272e, 0 0.5px 1px #0004;
 }
 
 /* -- Controls Component ---------------------------------------------- */
