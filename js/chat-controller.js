@@ -1308,7 +1308,13 @@ If you understand, follow these instructions for every relevant question. Do NOT
         // 1. Planning phase
         const plan = await generatePlan(userQuery);
         if (!Array.isArray(plan) || plan.length === 0) {
-            UIController.addMessage('ai', 'Planning agent failed to generate a valid plan.');
+            UIController.addMessage('ai', 'I could not generate a step-by-step plan for your question.\n\nCould you clarify what you mean by "' + userQuery + '"? For example, is it a product, a math expression, or something else?');
+            // Optionally, try a default web search if the query is not empty
+            if (userQuery && userQuery.trim().length > 0) {
+                UIController.addMessage('ai', 'Would you like me to search the web for "' + userQuery + '"?');
+                // Optionally, auto-trigger a web search tool call here if desired:
+                // await processToolCall({ tool: 'web_search', arguments: { query: userQuery } });
+            }
             return;
         }
         displayPlanningBar(plan);
