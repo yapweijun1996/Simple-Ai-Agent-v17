@@ -99,10 +99,13 @@ const App = (function() {
                 Utils.savePasswordToCookie(password);
             }
             
-            // Hide the login modal
+            // Hide and remove the login modal
             loginModal.style.display = 'none';
-            // Focus the message input after login modal is hidden
             setTimeout(() => {
+                if (loginModal && loginModal.parentNode) {
+                    loginModal.parentNode.removeChild(loginModal);
+                    loginModal = null;
+                }
                 const messageInput = document.getElementById('message-input');
                 if (messageInput && document.activeElement !== messageInput) {
                     messageInput.focus();
