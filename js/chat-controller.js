@@ -34,6 +34,26 @@ const ChatController = (function() {
         return typeof input === 'string' && input.trim().length > 0;
     }
 
+    // Utility: Extract the first valid JSON object from a string, even with extra text
+    function extractFirstJsonObject(str) {
+        let depth = 0, start = -1;
+        for (let i = 0; i < str.length; i++) {
+            if (str[i] === '{') {
+                if (depth === 0) start = i;
+                depth++;
+            } else if (str[i] === '}') {
+                depth--;
+                if (depth === 0 && start !== -1) {
+                    const candidate = str.slice(start, i + 1);
+                    try {
+                        return candidate;
+                    } catch {}
+                }
+            }
+        }
+        return null;
+    }
+
     // Add helper to robustly extract JSON tool calls using delimiters and schema validation
     function extractToolCall(text) {
         Utils.debugLog('[extractToolCall] Raw text:', text);
@@ -53,26 +73,22 @@ const ChatController = (function() {
         if (match) {
             jsonStr = match[1];
         } else {
-            // Fallback: try to extract the first JSON object in the text
-            const jsonMatch = text.match(/\{[\s\S]*?\}/);
-            if (jsonMatch) {
-                jsonStr = jsonMatch[0];
-            } else {
+            // Use utility to extract the first valid JSON object
+            jsonStr = extractFirstJsonObject(text);
+            if (!jsonStr) {
                 // Try to extract tool call from common patterns (e.g., tool_call, tool, arguments, action)
-                const toolCallPattern = /(tool|action)\s*[:=]\s*['\"]?(\w+)['\"]?[,\s]+(arguments|query|url|queries)\s*[:=]\s*([\{\[].*[\}\]]|['\"].*?['\"])/s;
+                // Stricter fallback: require tool and arguments keys
+                const toolCallPattern = /(["']tool["']\s*:\s*["'](\w+)["']\s*,\s*["']arguments["']\s*:\s*\{[^}]*\})/s;
                 const m = text.match(toolCallPattern);
                 if (m) {
-                    let args = {};
-                    if (m[3] === 'arguments') {
-                        try {
-                            args = JSON.parse(m[4]);
-                        } catch (err) {
-                            Utils.debugLog('[extractToolCall] Fallback pattern arguments parse error:', err, m[4]);
+                    try {
+                        const obj = JSON.parse('{' + m[1] + '}');
+                        if (obj.tool && obj.arguments) {
+                            return obj;
                         }
-                    } else if (m[3] === 'query' || m[3] === 'url' || m[3] === 'queries') {
-                        args[m[3]] = m[4].replace(/['\"]/g, '');
+                    } catch (err) {
+                        Utils.debugLog('[extractToolCall] Fallback pattern parse error:', err, m[1]);
                     }
-                    return { tool: m[2], arguments: args };
                 }
                 return null;
             }
@@ -90,21 +106,18 @@ const ChatController = (function() {
             } catch (err) {
                 Utils.debugLog('Tool JSON parse error:', err, 'from', jsonStr);
                 Utils.debugLog('Tool JSON parse error (sanitized):', err, 'from', sanitized);
-                // Fallback: regex for tool, arguments, query, url, action
-                const fallbackPattern = /(tool|action)\s*[:=]\s*['\"]?(\w+)['\"]?[,\s]+(arguments|query|url|queries)\s*[:=]\s*([\{\[].*[\}\]]|['\"].*?['\"])/s;
+                // Fallback: stricter regex for tool, arguments
+                const fallbackPattern = /(["']tool["']\s*:\s*["'](\w+)["']\s*,\s*["']arguments["']\s*:\s*\{[^}]*\})/s;
                 const m = jsonStr.match(fallbackPattern);
                 if (m) {
-                    let args = {};
-                    if (m[3] === 'arguments') {
-                        try {
-                            args = JSON.parse(m[4]);
-                        } catch (err2) {
-                            Utils.debugLog('[extractToolCall] Fallback pattern arguments parse error (sanitized):', err2, m[4]);
+                    try {
+                        const obj2 = JSON.parse('{' + m[1] + '}');
+                        if (obj2.tool && obj2.arguments) {
+                            return obj2;
                         }
-                    } else if (m[3] === 'query' || m[3] === 'url' || m[3] === 'queries') {
-                        args[m[3]] = m[4].replace(/['\"]/g, '');
+                    } catch (err2) {
+                        Utils.debugLog('[extractToolCall] Fallback pattern parse error (sanitized):', err2, m[1]);
                     }
-                    return { tool: m[2], arguments: args };
                 }
                 // Show user-friendly error with more context
                 UIController.addMessage('ai', `Error: Could not parse tool call JSON.\nRaw: ${jsonStr}\nError: ${err.message}`);
