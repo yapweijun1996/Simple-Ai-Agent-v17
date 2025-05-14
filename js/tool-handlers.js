@@ -174,11 +174,10 @@ const toolHandlers = {
             }
         }
         UIController.clearStatus();
-    },
-    // Alias: allow 'search' as a synonym for 'web_search'
-    search: toolHandlers.web_search
+    }
 };
-
+// Alias: allow 'search' as a synonym for 'web_search'
+toolHandlers.search = toolHandlers.web_search;
 // Export for use in chat-controller.js
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = toolHandlers;
