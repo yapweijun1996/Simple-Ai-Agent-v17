@@ -1398,22 +1398,33 @@ You are an AI agent. Given the user question: "${userQuery}", output a numbered 
             // === Plan Validation: Ensure only allowed tools are used ===
             invalidSteps = [];
             plan.forEach((step, idx) => {
-                // Try to detect tool call in step (simple regex for {tool:...} or tool name)
-                const toolCallMatch = step.match(/tool["']?\s*:?\s*["']?([a-zA-Z0-9_\-]+)/i);
-                if (toolCallMatch) {
-                    const toolName = toolCallMatch[1];
-                    if (!allowedTools.includes(toolName)) {
-                        invalidSteps.push({ idx, toolName, step });
+                // Accept object steps like { type: 'no_tool_needed' }
+                if (typeof step === 'object' && step.type === 'no_tool_needed') {
+                    if (window && window.console) console.log('[PlanValidation] Step', idx, 'is NO_TOOL_NEEDED object, accepting as valid.');
+                    return; // Valid, skip further checks
+                }
+                if (typeof step === 'string') {
+                    // Try to detect tool call in step (simple regex for {tool:...} or tool name)
+                    const toolCallMatch = step.match(/tool["']?\s*:?\s*["']?([a-zA-Z0-9_\-]+)/i);
+                    if (toolCallMatch) {
+                        const toolName = toolCallMatch[1];
+                        if (!allowedTools.includes(toolName)) {
+                            invalidSteps.push({ idx, toolName, step });
+                        }
+                    } else {
+                        // Also check for direct mentions of tool names not in allowedTools
+                        allowedTools.forEach(tool => {
+                            if (step.toLowerCase().includes(tool.toLowerCase())) return;
+                        });
+                        // If step mentions 'tool' or 'use' but not an allowed tool, flag as invalid
+                        if (/tool|use|call/i.test(step) && !allowedTools.some(t => step.toLowerCase().includes(t.toLowerCase()))) {
+                            invalidSteps.push({ idx, toolName: 'unknown', step });
+                        }
                     }
                 } else {
-                    // Also check for direct mentions of tool names not in allowedTools
-                    allowedTools.forEach(tool => {
-                        if (step.toLowerCase().includes(tool.toLowerCase())) return;
-                    });
-                    // If step mentions 'tool' or 'use' but not an allowed tool, flag as invalid
-                    if (/tool|use|call/i.test(step) && !allowedTools.some(t => step.toLowerCase().includes(t.toLowerCase()))) {
-                        invalidSteps.push({ idx, toolName: 'unknown', step });
-                    }
+                    // If step is not a string or recognized object, flag as invalid
+                    if (window && window.console) console.log('[PlanValidation] Step', idx, 'is not a string or known object:', step);
+                    // Optionally, push to invalidSteps if not recognized
                 }
             });
             if (invalidSteps.length === 0) break; // Plan is valid
