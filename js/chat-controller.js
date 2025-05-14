@@ -1619,6 +1619,7 @@ If you output anything else, the system will reject your response.
         processToolCall,
         getToolCallHistory: () => [...state.toolCallHistory],
         isValidUserInput,
+        broadcastSettingsUpdate,
     }, 'CHAT');
 
     // Helper: Broadcast settings to all relevant modules
