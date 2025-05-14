@@ -12,15 +12,9 @@ const Utils = (function() {
     let underTokenStatusTimer = null;
 
     // Debug logging helper
-    function utilsDebugLog(...args) {
-        try {
-            const debug = (typeof SettingsController !== 'undefined' && SettingsController.getSettings && SettingsController.getSettings().debug);
-            if (debug) {
-                console.warn('[UTILS-DEBUG]', ...args);
-            }
-        } catch (e) {
-            // Fallback: always log if settings unavailable
-            console.warn('[UTILS-DEBUG]', ...args);
+    function debugLog(...args) {
+        if (typeof window !== 'undefined' && window.ChatController && window.ChatController.getSettings && window.ChatController.getSettings().debug) {
+            console.log('[AI-DEBUG]', ...args);
         }
     }
 
@@ -77,7 +71,7 @@ const Utils = (function() {
         try {
             return { data: JSON.parse(dataStr) };
         } catch (err) {
-            utilsDebugLog('Stream parsing error', err);
+            debugLog('Stream parsing error', err);
             return null;
         }
     }
@@ -90,7 +84,7 @@ const Utils = (function() {
     function createFromTemplate(templateId) {
         const template = document.getElementById(templateId);
         if (!template) {
-            utilsDebugLog(`Template not found: ${templateId}`);
+            debugLog(`Template not found: ${templateId}`);
             return null;
         }
         return template.content.cloneNode(true).firstElementChild;
@@ -260,7 +254,7 @@ const Utils = (function() {
                 return response;
             } catch (err) {
                 if (err.name === 'AbortError') {
-                    utilsDebugLog(`Fetch attempt ${attempt + 1} aborted:`, err.message || err);
+                    debugLog(`Fetch attempt ${attempt + 1} aborted:`, err.message || err);
                     throw err; // Do not retry on AbortError
                 }
                 attempt++;
@@ -310,21 +304,11 @@ const Utils = (function() {
                 return response;
             } catch (err) {
                 lastError = err;
-                utilsDebugLog(`Proxy fetch attempt ${attempt} via ${prefix || 'direct'} failed:`, err);
+                debugLog(`Proxy fetch attempt ${attempt} via ${prefix || 'direct'} failed:`, err);
                 if (attempt < retries) await new Promise(r => setTimeout(r, retryDelay));
             }
         }
         throw lastError;
-    }
-
-    /**
-     * Debug logging helper
-     * @param {...any} args
-     */
-    function debugLog(...args) {
-        if (typeof window !== 'undefined' && window.ChatController && window.ChatController.getSettings && window.ChatController.getSettings().debug) {
-            console.log('[AI-DEBUG]', ...args);
-        }
     }
 
     /**
