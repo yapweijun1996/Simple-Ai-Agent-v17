@@ -312,22 +312,9 @@ If you understand, follow these instructions for every relevant question. Do NOT
         UIController.addMessage('user', message);
         UIController.clearUserInput();
 
-        const enhancedMessage = message;
-        const currentSettings = SettingsController.getSettings();
-        const selectedModel = currentSettings.selectedModel;
-
         try {
-            if (selectedModel.startsWith('gpt')) {
-                state.chatHistory.push({ role: 'user', content: enhancedMessage });
-                Utils.debugLog('[sendMessage] Sent enhanced message to GPT:', enhancedMessage);
-                // Intercept the first AI response to extract plan
-                await handleOpenAIMessageWithPlan(selectedModel, enhancedMessage);
-            } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
-                if (state.chatHistory.length === 0) {
-                    state.chatHistory.push({ role: 'user', content: '' });
-                }
-                await handleGeminiMessageWithPlan(selectedModel, enhancedMessage);
-            }
+            // Always use A→A agent workflow
+            await runAgentWorkflow(message);
         } catch (error) {
             Utils.debugLog('[sendMessage] Error:', error);
             let userMessage = 'Error: ' + (error && error.message ? error.message : error);
@@ -345,11 +332,10 @@ If you understand, follow these instructions for every relevant question. Do NOT
             UIController.showStatus(userMessage, getAgentDetails());
             state.toolWorkflowActive = false;
             console.error('Error sending message:', error);
-        } finally {
-            Utils.updateTokenDisplay(state.totalTokens);
-            UIController.clearStatus();
-            UIController.enableMessageInput();
         }
+        Utils.updateTokenDisplay(state.totalTokens);
+        UIController.clearStatus();
+        UIController.enableMessageInput();
     }
 
     // 3. Extract shared helpers for streaming/non-streaming response handling
