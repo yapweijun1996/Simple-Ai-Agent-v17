@@ -141,11 +141,6 @@ html, body {
     transition: background 0.2s, box-shadow 0.2s;
 }
 
-/* Keep compatibility with existing JS references */
-.message {
-    display: none; /* Hide original style, but keep for JS compatibility */
-}
-
 /* User vs AI styling */
 .chat-app__message.user-message {
     background: linear-gradient(135deg, var(--user-msg-bg) 80%, #b6e2c6 100%);
@@ -192,11 +187,6 @@ body:not(.light-mode) .chat-app__message.ai-message {
     font-size: 1.05rem;
     line-height: 1.6;
     padding-bottom: 1.2em; /* Add space for timestamp below */
-}
-
-/* Keep compatibility with existing JS */
-.message-content {
-    display: none; /* Hide original style, but keep for JS compatibility */
 }
 
 /* -- Controls Component ---------------------------------------------- */
@@ -269,10 +259,6 @@ body:not(.light-mode) .chat-app__message.ai-message {
 }
 
 /* Keep compatibility with old .modal for JS */
-.modal {
-    display: none; /* Hide original style, but keep for JS compatibility */
-}
-
 .settings-modal__content {
     background: var(--container-bg);
     padding: var(--space-lg);
@@ -359,7 +345,7 @@ body:not(.light-mode) .chat-app__message.ai-message {
 /* Keep compatibility with old settings classes for JS */
 .setting-item, .setting-label, .setting-checkbox,
 .modal-content, .modal-actions, .modal-button {
-    display: none; /* Hide original styles, but keep for JS compatibility */
+    /* REMOVED: legacy compatibility classes, not used in new BEM structure */
 }
 
 /* -- Thinking & Answer Formatting ---------------------------------- */
@@ -571,17 +557,17 @@ body:not(.light-mode) .chat-app__message.ai-message {
     color: #888;
     border: 1.5px solid #4f8cff;
 }
-body.dark-mode .status-bar--info {
+body:not(.light-mode) .status-bar--info {
     background: rgba(35, 39, 46, 0.98);
     color: #eaf3ff;
     border: 1px solid #23272e;
 }
-body.dark-mode .status-bar--error {
+body:not(.light-mode) .status-bar--error {
     background: #3a2323;
     color: #ffb3b3;
     border: 1.5px solid #ff5c5c;
 }
-body.dark-mode .status-bar--progress {
+body:not(.light-mode) .status-bar--progress {
     background: #23272e;
     color: #eaf3ff;
     border: 1.5px solid #4f8cff;
@@ -957,24 +943,6 @@ body:not(.light-mode) a {
 }
 body:not(.light-mode) a:hover {
     color: #82cfff;
-}
-
-/* 6. Remove redundant .dark-mode selectors (use only body:not(.light-mode)) */
-body.dark-mode, body.dark-mode .chat-app,
-body.dark-mode .chat-app__window,
-body.dark-mode .chat-app__message.user-message,
-body.dark-mode .chat-app__message.ai-message,
-body.dark-mode .chat-app__controls,
-body.dark-mode .chat-app__header,
-body.dark-mode .chat-app__token-usage,
-body.dark-mode .settings-modal__content,
-body.dark-mode .settings-modal__button,
-body.dark-mode .settings-modal__button--primary,
-body.dark-mode .chat-app__status-bar,
-body.dark-mode .tool-result,
-body.dark-mode .ai-suggested,
-body.dark-mode .ai-suggested::before {
-    /* Remove: replaced by body:not(.light-mode) above */
 }
 
 /* --- Settings Button: Dark Mode Fix --- */
