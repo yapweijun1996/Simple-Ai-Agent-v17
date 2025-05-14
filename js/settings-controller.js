@@ -21,6 +21,13 @@ const SettingsController = (function() {
      * Creates and attaches the settings modal
      */
     function createSettingsModal() {
+        // Defensive: forcibly remove any lingering modal before creating a new one
+        const existingModal = document.getElementById('settings-modal');
+        if (existingModal && existingModal.parentNode) {
+            existingModal.parentNode.removeChild(existingModal);
+            if (window && window.console) console.log('[Settings] Removed lingering modal before creating new one');
+            settingsModal = null;
+        }
         if (settingsModal) return;
         // Create modal from template
         settingsModal = Utils.createFromTemplate('settings-modal-template');
@@ -132,6 +139,13 @@ const SettingsController = (function() {
         } else {
             if (window && window.console) console.log('[Settings] No modal found to hide');
         }
+        // Extra: forcibly remove any lingering modal with the same ID
+        const lingering = document.getElementById('settings-modal');
+        if (lingering && lingering.parentNode) {
+            lingering.parentNode.removeChild(lingering);
+            if (window && window.console) console.log('[Settings] Forcibly removed lingering modal after hide');
+        }
+        settingsModal = null;
         if (window && window.console) console.log('[Settings] hideSettingsModal complete. settingsModal:', settingsModal);
     }
 

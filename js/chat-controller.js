@@ -1273,63 +1273,43 @@ If you understand, follow these instructions for every relevant question. Do NOT
         state.planStatus = 'idle';
         UIController.hidePlanningBar();
     }
-    // Enhanced plan extraction: support more formats (numbered, bullets, 'First', etc.)
+    // Enhanced plan extraction: support more formats (numbered, bullets, JSON, NO_TOOL_NEEDED)
     function extractPlanFromText(text) {
-        // Support '1. ...', 'Step 1: ...', '- ...', '* ...', 'First,', 'Next,'
+        // Accept NO_TOOL_NEEDED (case-insensitive, with or without quotes)
+        if (/^"?NO_TOOL_NEEDED"?$/i.test(text.trim())) {
+            if (window && window.console) console.log('[PlanExtract] NO_TOOL_NEEDED detected');
+            return [{ type: 'no_tool_needed' }];
+        }
+        // Try to parse as JSON (array or object)
+        try {
+            const json = JSON.parse(text);
+            if (Array.isArray(json)) {
+                if (window && window.console) console.log('[PlanExtract] Parsed JSON array plan:', json);
+                return json;
+            } else if (json && typeof json === 'object') {
+                // Accept single-step object with tool_call or similar
+                if (json.tool_call || json.tool) {
+                    if (window && window.console) console.log('[PlanExtract] Parsed JSON object plan:', json);
+                    return [json];
+                }
+            }
+        } catch (e) {
+            if (window && window.console) console.log('[PlanExtract] Not valid JSON:', e);
+        }
+        // Fallback: extract numbered/bulleted steps
         const planLines = text.split('\n').filter(line =>
             /^\d+\.\s+/.test(line.trim()) ||
             /^Step\s*\d+[:.]/i.test(line.trim()) ||
             /^-\s+/.test(line.trim()) ||
             /^\*\s+/.test(line.trim()) ||
-            /^(First|Next|Then|Finally)[,:\s]/i.test(line.trim())
+            /^First[,\s]/i.test(line.trim()) ||
+            /^Next[,\s]/i.test(line.trim())
         );
         if (planLines.length > 0) {
-            return planLines.map(line =>
-                line.replace(/^\d+\.\s+/, '')
-                    .replace(/^Step\s*\d+[:.]\s*/i, '')
-                    .replace(/^-+\s*/, '')
-                    .replace(/^\*+\s*/, '')
-                    .replace(/^(First|Next|Then|Finally)[,:\s]+/i, '')
-                    .trim()
-            );
+            if (window && window.console) console.log('[PlanExtract] Extracted plan lines:', planLines);
+            return planLines.map(line => ({ step: line.trim() }));
         }
-        // Try to parse as JSON if no plan lines found
-        let json;
-        try {
-            json = JSON.parse(text);
-        } catch (err) {
-            // Not valid JSON, return []
-            if (window && window.console) console.log('[PlanExtract] Not valid JSON:', err);
-            return [];
-        }
-        if (Array.isArray(json)) {
-            // Array of steps (objects)
-            if (window && window.console) console.log('[PlanExtract] JSON array detected:', json);
-            return json.map((step, idx) => {
-                if (typeof step === 'string') return step;
-                if (step.action) {
-                    let desc = `Action: ${step.action}`;
-                    if (step.parameters) desc += ` (${JSON.stringify(step.parameters)})`;
-                    return desc;
-                }
-                if (step.step && step.action) {
-                    let desc = `Step ${step.step}: ${step.action}`;
-                    if (step.parameters) desc += ` (${JSON.stringify(step.parameters)})`;
-                    return desc;
-                }
-                return JSON.stringify(step);
-            });
-        } else if (typeof json === 'object' && json !== null) {
-            // Single tool_call or similar
-            if (window && window.console) console.log('[PlanExtract] JSON object detected:', json);
-            if (json.tool_call && (json.tool_call.tool || json.tool_call.tool_name)) {
-                let tool = json.tool_call.tool || json.tool_call.tool_name;
-                let args = json.tool_call.arguments || json.tool_call.input || {};
-                return [`Call tool: ${tool} (${JSON.stringify(args)})`];
-            }
-            // Fallback: stringify
-            return [JSON.stringify(json)];
-        }
+        if (window && window.console) console.log('[PlanExtract] No valid plan found in text:', text);
         return [];
     }
 
