@@ -214,6 +214,7 @@ Begin Reasoning Now:
 3. instant_answer(query) → returns a JSON object from DuckDuckGo's Instant Answer API for quick facts, definitions, and summaries (no proxies needed)
 
 **INSTRUCTIONS:**
+- For EVERY question, ALWAYS provide a step-by-step plan, even if the answer seems simple. List each step on a new line, using numbers or bullets.
 - If you need information from the web, you MUST output a tool call as a single JSON object, and NOTHING else. Do NOT include any explanation, markdown, or extra text.
 - After receiving a tool result, reason step by step (Chain of Thought) and decide if you need to call another tool. If so, output another tool call JSON. Only provide your final answer after all necessary tool calls are complete.
 - If you need to read a web page, use read_url. If the snippet ends with an ellipsis ("..."), always determine if fetching more text will improve your answer. If so, output another read_url tool call with the same url, start at your previous offset, and length set to 5000. Repeat until you have enough content.
@@ -224,17 +225,15 @@ Begin Reasoning Now:
   {"tool":"instant_answer","arguments":{"query":"your query"}}
 - Do NOT output any other text, markdown, or explanation with the tool call JSON.
 - After receiving the tool result, continue reasoning step by step and then provide your answer.
+- For EVERY question, ALWAYS provide a step-by-step plan, even if the answer seems simple.
 
 **EXAMPLES:**
 Q: What is the latest news about OpenAI?
-A: {"tool":"web_search","arguments":{"query":"latest news about OpenAI"}}
-
+A: 1. Search for the latest news about OpenAI.\n2. Read the most relevant article.\n3. Summarize the findings.\n
 Q: Read the content of https://example.com and summarize it.
-A: {"tool":"read_url","arguments":{"url":"https://example.com","start":0,"length":1122}}
-
+A: 1. Read the content of https://example.com.\n2. Summarize the content.\n
 Q: What is the capital of France?
-A: {"tool":"instant_answer","arguments":{"query":"capital of France"}}
-
+A: 1. Find the capital of France.\n2. Provide the answer.\n
 If you understand, follow these instructions for every relevant question. Do NOT answer from your own knowledge if a tool call is needed. Wait for the tool result before continuing.`,
         }];
         if (initialSettings) {
@@ -657,21 +656,23 @@ If you understand, follow these instructions for every relevant question. Do NOT
             }
             rawReply = result.choices[0].message.content;
             // Use robust plan extraction
-            const planSteps = robustExtractPlanFromText(rawReply);
-            if (planSteps.length > 0) {
-                setPlan(planSteps);
-                await executePlanSteps(model, planSteps);
-                planDetected = true;
+            let planSteps = robustExtractPlanFromText(rawReply);
+            // If no plan steps detected, but a tool call is present, treat as a single-step plan
+            if ((!planSteps || planSteps.length === 0) && extractToolCall(rawReply)) {
+                const toolCall = extractToolCall(rawReply);
+                planSteps = [`Call tool: ${toolCall.tool}`];
             }
+            // If still no plan, treat the whole reply as a single step
+            if (!planSteps || planSteps.length === 0) {
+                planSteps = [rawReply];
+            }
+            setPlan(planSteps);
+            await executePlanSteps(model, planSteps);
+            planDetected = true;
         }
         if (!planDetected) {
             UIController.addMessage('ai', rawReply);
             UIController.showStatus('No plan detected in AI response.', getAgentDetails());
-            const toolCall = extractToolCall(rawReply);
-            if (toolCall && toolCall.tool && toolCall.arguments) {
-                setPlan([`Call tool: ${toolCall.tool}`]);
-                await processToolCall(toolCall);
-            }
         }
     }
 
@@ -718,21 +719,24 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 rawReply = candidate.content.text;
             }
             planSteps = extractPlanFromText(rawReply);
-            if (planSteps.length > 0) {
-                setPlan(planSteps);
-                planDetected = true;
-                await executePlanSteps(model, planSteps);
-                return;
+            // If no plan steps detected, but a tool call is present, treat as a single-step plan
+            if ((!planSteps || planSteps.length === 0) && extractToolCall(rawReply)) {
+                const toolCall = extractToolCall(rawReply);
+                planSteps = [`Call tool: ${toolCall.tool}`];
             }
-        }
-        // If no plan detected, try tool call, else fallback
-        const toolCall = extractToolCall(rawReply);
-        if (toolCall && toolCall.tool && toolCall.arguments) {
-            setPlan([`Call tool: ${toolCall.tool}`]);
-            await processToolCall(toolCall);
+            // If still no plan, treat the whole reply as a single step
+            if (!planSteps || planSteps.length === 0) {
+                planSteps = [rawReply];
+            }
+            setPlan(planSteps);
+            planDetected = true;
+            await executePlanSteps(model, planSteps);
             return;
         }
-        await handleNoPlanOrToolCall(rawReply, model);
+        if (!planDetected) {
+            UIController.addMessage('ai', rawReply);
+            UIController.showStatus('No plan detected in AI response.', getAgentDetails());
+        }
     }
 
     // Helper: Tool call loop protection
