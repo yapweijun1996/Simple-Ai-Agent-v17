@@ -162,6 +162,11 @@ const ChatController = (function() {
             if (obj.tool_call.queries) args.queries = obj.tool_call.queries;
             return { tool, arguments: args };
         }
+        // [ADDED] Handle Gemini tool_choice schema
+        if (obj.tool_choice && obj.tool_choice.type) {
+            const { type, ...rest } = obj.tool_choice;
+            return { tool: type, arguments: { ...rest } };
+        }
         if (obj.tool_code && obj.url) {
             return { tool: obj.tool_code, arguments: { url: obj.url } };
         }
