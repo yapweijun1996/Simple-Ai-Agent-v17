@@ -237,17 +237,6 @@ const UIController = (function() {
     }
 
     /**
-     * Safely escapes HTML
-     * @param {string} html - The string to escape
-     * @returns {string} - Escaped HTML string
-     */
-    function escapeHtml(html) {
-        const div = document.createElement('div');
-        div.textContent = html;
-        return div.innerHTML;
-    }
-    
-    /**
      * Formats code blocks in message text (prevents recursion)
      * @param {string} text - The message text
      * @returns {string} - HTML with formatted code blocks
@@ -266,7 +255,7 @@ const UIController = (function() {
                     if (currentText) {
                         // Instead of calling formatMessageContent (which could recurse),
                         // just escape and format the non-code text directly.
-                        formatted += `<div>${escapeHtml(currentText).replace(/\n/g, '<br>')}</div>`;
+                        formatted += `<div>${Utils.escapeHtml(currentText).replace(/\n/g, '<br>')}</div>`;
                         currentText = '';
                     }
                     insideCode = true;
@@ -279,7 +268,7 @@ const UIController = (function() {
                 }
             } else if (insideCode) {
                 // Inside code block
-                formatted += escapeHtml(line) + '\n';
+                formatted += Utils.escapeHtml(line) + '\n';
             } else {
                 // Regular text
                 currentText += (currentText ? '\n' : '') + line;
@@ -287,7 +276,7 @@ const UIController = (function() {
         }
         // Add any remaining text (non-code)
         if (currentText) {
-            formatted += `<div>${escapeHtml(currentText).replace(/\n/g, '<br>')}</div>`;
+            formatted += `<div>${Utils.escapeHtml(currentText).replace(/\n/g, '<br>')}</div>`;
         }
         return formatted;
     }
@@ -303,8 +292,8 @@ const UIController = (function() {
             const thinkingMatch = text.match(/Thinking:(.*?)(?=Answer:|$)/s);
             const answerMatch = text.match(/Answer:(.*?)$/s);
             if (thinkingMatch && answerMatch) {
-                const thinkingContent = escapeHtml(thinkingMatch[1].trim());
-                const answerContent = escapeHtml(answerMatch[1].trim());
+                const thinkingContent = Utils.escapeHtml(thinkingMatch[1].trim());
+                const answerContent = Utils.escapeHtml(answerMatch[1].trim());
                 return `<div class="thinking-section"><strong>Thinking:</strong><br>${thinkingContent.replace(/\n/g, '<br>')}</div>\n<div class="answer-section"><strong>Answer:</strong><br>${answerContent.replace(/\n/g, '<br>')}</div>`;
             }
         }
@@ -313,7 +302,7 @@ const UIController = (function() {
             return formatCodeBlocks(text);
         }
         // Otherwise, escape and format as plain text
-        return escapeHtml(text).replace(/\n/g, '<br>');
+        return Utils.escapeHtml(text).replace(/\n/g, '<br>');
     }
 
     /**
@@ -772,16 +761,6 @@ const UIController = (function() {
         clearStatusUnderToken,
         showSpinnerUnderToken,
         hideSpinnerUnderToken,
-        addHtmlMessage(sender, html) {
-            const chatWindow = document.getElementById('chat-window');
-            const messageElement = Utils.createFromTemplate('message-template');
-            messageElement.classList.add(`${sender}-message`);
-            const contentElement = messageElement.querySelector('.chat-app__message-content');
-            contentElement.innerHTML = html;
-            chatWindow.appendChild(messageElement);
-            messageElement.scrollIntoView({ behavior: 'smooth', block: 'end' });
-            return messageElement;
-        },
         showError,
         showEmptyState,
         hideEmptyState,
