@@ -684,7 +684,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 onChunk: (chunk, fullText) => {
                     rawReply = fullText;
                     if (!firstPlanExtracted && fullText) {
-                        planSteps = robustExtractPlanFromText(fullText);
+                        planSteps = extractPlanFromText(fullText);
                         if (planSteps.length > 0) {
                             setPlan(planSteps);
                             firstPlanExtracted = true;
@@ -695,6 +695,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
             });
             if (planDetected && planSteps.length > 0) {
                 await executePlanSteps(model, planSteps);
+                return;
             }
         } else {
             const session = ApiService.createGeminiSession(model);
@@ -708,22 +709,22 @@ If you understand, follow these instructions for every relevant question. Do NOT
             } else if (candidate.content.text) {
                 rawReply = candidate.content.text;
             }
-            planSteps = robustExtractPlanFromText(rawReply);
+            planSteps = extractPlanFromText(rawReply);
             if (planSteps.length > 0) {
                 setPlan(planSteps);
                 planDetected = true;
                 await executePlanSteps(model, planSteps);
+                return;
             }
         }
-        if (!planDetected) {
-            UIController.addMessage('ai', rawReply);
-            UIController.showStatus('No plan detected in AI response.', getAgentDetails());
-            const toolCall = extractToolCall(rawReply);
-            if (toolCall && toolCall.tool && toolCall.arguments) {
-                setPlan([`Call tool: ${toolCall.tool}`]);
-                await processToolCall(toolCall);
-            }
+        // If no plan detected, try tool call, else fallback
+        const toolCall = extractToolCall(rawReply);
+        if (toolCall && toolCall.tool && toolCall.arguments) {
+            setPlan([`Call tool: ${toolCall.tool}`]);
+            await processToolCall(toolCall);
+            return;
         }
+        await handleNoPlanOrToolCall(rawReply, model);
     }
 
     // Helper: Tool call loop protection
@@ -735,7 +736,12 @@ If you understand, follow these instructions for every relevant question. Do NOT
             state.lastToolCall = callSignature;
             state.lastToolCallCount = 1;
         }
-        return state.lastToolCallCount > state.MAX_TOOL_CALL_REPEAT;
+        if (state.lastToolCallCount > state.MAX_TOOL_CALL_REPEAT) {
+            UIController.addMessage('ai', `Error: Tool call loop detected for tool "${tool}". Please try a different query or check your tool configuration.`);
+            UIController.showStatus('Tool call loop detected. User intervention may be required.', getAgentDetails());
+            return true;
+        }
+        return false;
     }
 
     // Helper: Log tool call
@@ -1199,18 +1205,22 @@ If you understand, follow these instructions for every relevant question. Do NOT
         state.planStatus = 'idle';
         UIController.hidePlanningBar();
     }
-    // Plan extraction from LLM output (robust parser)
+    // Enhanced plan extraction: support more formats (numbered, bullets, 'First', etc.)
     function extractPlanFromText(text) {
-        // Support '1. ...', 'Step 1: ...', '- ...'
+        // Support '1. ...', 'Step 1: ...', '- ...', '* ...', 'First,', 'Next,'
         const planLines = text.split('\n').filter(line =>
             /^\d+\.\s+/.test(line.trim()) ||
             /^Step\s*\d+[:.]/i.test(line.trim()) ||
-            /^-\s+/.test(line.trim())
+            /^-\s+/.test(line.trim()) ||
+            /^\*\s+/.test(line.trim()) ||
+            /^(First|Next|Then|Finally)[,:\s]/i.test(line.trim())
         );
         return planLines.map(line =>
             line.replace(/^\d+\.\s+/, '')
                 .replace(/^Step\s*\d+[:.]\s*/i, '')
                 .replace(/^-+\s*/, '')
+                .replace(/^\*+\s*/, '')
+                .replace(/^(First|Next|Then|Finally)[,:\s]+/i, '')
                 .trim()
         );
     }
@@ -1465,6 +1475,77 @@ If you output anything else, the system will reject your response.
     // Alias for robust plan extraction (backward compatibility)
     function robustExtractPlanFromText(text) {
         return extractPlanFromText(text);
+    }
+
+    // Modularized error handler for plan/tool call issues
+    function handlePlanOrToolCallError(rawReply, context = {}) {
+        UIController.addMessage('ai', rawReply);
+        let errorMsg = 'No plan detected in AI response.';
+        if (context.suggestion) errorMsg += ' ' + context.suggestion;
+        UIController.showStatus(errorMsg, getAgentDetails());
+        // Suggest user action
+        UIController.addMessage('ai', 'Tip: Try rephrasing your question or ensure your prompt asks for a step-by-step plan.');
+    }
+
+    // Improved tool call loop protection: reset on new tool, warn user
+    function isToolCallLoop(tool, args) {
+        const callSignature = JSON.stringify({ tool, args });
+        if (state.lastToolCall === callSignature) {
+            state.lastToolCallCount++;
+        } else {
+            state.lastToolCall = callSignature;
+            state.lastToolCallCount = 1;
+        }
+        if (state.lastToolCallCount > state.MAX_TOOL_CALL_REPEAT) {
+            UIController.addMessage('ai', `Error: Tool call loop detected for tool "${tool}". Please try a different query or check your tool configuration.`);
+            UIController.showStatus('Tool call loop detected. User intervention may be required.', getAgentDetails());
+            return true;
+        }
+        return false;
+    }
+
+    // Fallback logic if no plan/tool call is detected
+    async function handleNoPlanOrToolCall(rawReply, model) {
+        handlePlanOrToolCallError(rawReply, { suggestion: 'The AI did not return a plan or tool call.' });
+        // Optionally, try to re-prompt the AI for a plan
+        const reprompt = 'Please provide a step-by-step plan or a tool call JSON for the previous question.';
+        const selectedModel = SettingsController.getSettings().selectedModel;
+        let retryReply = '';
+        if (selectedModel.startsWith('gpt')) {
+            const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                { role: 'system', content: 'You are an AI assistant.' },
+                { role: 'user', content: reprompt }
+            ]);
+            retryReply = res.choices[0].message.content;
+        } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
+            const session = ApiService.createGeminiSession(selectedModel);
+            const chatHistory = [
+                { role: 'system', content: 'You are an AI assistant.' },
+                { role: 'user', content: reprompt }
+            ];
+            const result = await session.sendMessage(reprompt, chatHistory);
+            const candidate = result.candidates[0];
+            if (candidate.content.parts) {
+                retryReply = candidate.content.parts.map(p => p.text).join(' ');
+            } else if (candidate.content.text) {
+                retryReply = candidate.content.text;
+            }
+        }
+        // Try extracting plan/tool call again
+        const planSteps = extractPlanFromText(retryReply);
+        if (planSteps.length > 0) {
+            setPlan(planSteps);
+            await executePlanSteps(model, planSteps);
+            return;
+        }
+        const toolCall = extractToolCall(retryReply);
+        if (toolCall && toolCall.tool && toolCall.arguments) {
+            setPlan([`Call tool: ${toolCall.tool}`]);
+            await processToolCall(toolCall);
+            return;
+        }
+        // If still nothing, ask user to clarify
+        UIController.addMessage('ai', 'Unable to proceed: No plan or tool call detected after retry. Please clarify your request.');
     }
 
     // Public API
