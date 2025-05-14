@@ -29,6 +29,26 @@ const ChatController = (function() {
         planStatus: 'idle'
     };
 
+    // Tool handler executor: dispatches tool calls to handlers in toolHandlers
+    async function executeToolHandler(tool, args) {
+        try {
+            if (typeof window.toolHandlers !== 'object' || !window.toolHandlers) {
+                UIController.addMessage('ai', 'Error: Tool handler registry not found.');
+                return false;
+            }
+            const handler = window.toolHandlers[tool];
+            if (typeof handler !== 'function') {
+                UIController.addMessage('ai', `Error: No handler found for tool "${tool}".`);
+                return false;
+            }
+            await handler(args);
+            return true;
+        } catch (err) {
+            UIController.addMessage('ai', `Error executing tool handler for "${tool}": ${err.message}`);
+            return false;
+        }
+    }
+
     // Input validation: returns true if input is a non-empty string after trimming
     function isValidUserInput(input) {
         return typeof input === 'string' && input.trim().length > 0;
