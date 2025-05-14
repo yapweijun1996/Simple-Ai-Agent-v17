@@ -8,57 +8,57 @@
    - Comments for maintainability
    =================================================================== */
 
-/* -- Variables ------------------------------------------------------- */
+/* === Modern UI/UX Enhancements (2024-06) =============================
+   - Vibrant gradients, glassmorphism, and neumorphism touches
+   - Smoother transitions and micro-interactions
+   - Enhanced focus/active states for accessibility
+   - Refined controls, cards, and modals
+   - Improved empty/loading states
+   =================================================================== */
 :root {
-    --primary-color: #1d4ed8;
-    --danger-color: #dc2626;
-    --text-color: #18181b;
-    --text-light-color: #64748b;
-    --bg-color: #f8fafc;
-    --container-bg: #fff;
-    --border-color: #334155;
-    --user-msg-bg: #bbf7d0;
-    --ai-msg-bg: #e0e7ef;
-    --radius-sm: 6px;
-    --radius-md: 12px;
-    --radius-lg: 20px;
-    --space-xs: 6px;
-    --space-sm: 12px;
-    --space-md: 18px;
-    --space-lg: 28px;
-    --font-sm: 1rem;
-    --font-md: 1.15rem;
-    --shadow-sm: 0 2px 8px rgba(0,0,0,0.10);
-    --max-width: 100vw;
-}
-
-body.light-mode {
     --primary-color: #2563eb;
+    --primary-gradient: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
+    --accent-color: #f472b6;
     --danger-color: #ef4444;
+    --success-color: #22c55e;
     --text-color: #23272e;
     --text-light-color: #64748b;
     --bg-color: #f8fafc;
-    --container-bg: #fff;
+    --container-bg: rgba(255,255,255,0.92);
+    --glass-bg: rgba(255,255,255,0.75);
     --border-color: #cbd5e1;
     --user-msg-bg: #bbf7d0;
     --ai-msg-bg: #e0e7ef;
+    --radius-xs: 4px;
+    --radius-sm: 8px;
+    --radius-md: 16px;
+    --radius-lg: 28px;
+    --space-xs: 6px;
+    --space-sm: 12px;
+    --space-md: 20px;
+    --space-lg: 36px;
+    --font-xs: 0.95rem;
+    --font-sm: 1.08rem;
+    --font-md: 1.18rem;
+    --font-lg: 1.35rem;
+    --shadow-xs: 0 1px 4px rgba(0,0,0,0.06);
+    --shadow-sm: 0 2px 8px rgba(0,0,0,0.10);
+    --shadow-md: 0 4px 24px #2563eb11, 0 2px 8px #0002;
+    --shadow-glass: 0 8px 32px #2563eb22, 0 2px 12px #0001;
+    --max-width: 100vw;
 }
 
-/* -- Base Styles ----------------------------------------------------- */
-html, body {
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    font-size: 18px;
-    line-height: 1.7;
-    letter-spacing: 0.01em;
-    font-family: 'Inter', 'Segoe UI', 'Arial', 'Helvetica Neue', sans-serif;
-    font-feature-settings: "ss01" on, "cv01" on;
+body, html {
     background: linear-gradient(120deg, #f8fafc 0%, #e0e7ef 100%);
     background-size: 200% 200%;
     animation: bgGradientMove 12s ease-in-out infinite;
+    font-family: 'Inter', 'Segoe UI', 'Arial', 'Helvetica Neue', sans-serif;
+    font-size: 18px;
     color: var(--text-color);
-    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
 }
 
 /* Focus styles for better accessibility */
@@ -88,15 +88,22 @@ html, body {
     justify-content: space-between;
     align-items: center;
     padding: var(--space-lg) var(--space-md);
-    font-size: 1.3rem;
+    font-size: var(--font-lg);
     background: var(--container-bg);
     border-bottom: 2px solid var(--border-color);
-    box-shadow: 0 2px 8px #0001;
+    box-shadow: var(--shadow-sm);
 }
 
 .chat-app__header-title {
     margin: 0;
     font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: var(--primary-color);
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 .chat-app__settings-button {
@@ -131,11 +138,12 @@ html, body {
 
 /* -- Messages Component --------------------------------------------- */
 .chat-app__window {
-    flex: 1;
+    background: linear-gradient(120deg, #f8fafc 0%, #e0e7ef 100%);
+    background-size: 200% 200%;
+    animation: bgGradientMove 12s ease-in-out infinite;
     padding: var(--space-md);
-    padding-bottom: 80px; /* reserve space below for fixed input */
+    padding-bottom: 80px;
     overflow-y: auto;
-    background: #fafafa;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -163,8 +171,8 @@ html, body {
     padding: 0;
     margin: 22px 0;
     max-width: 80%;
-    border-radius: 22px;
-    box-shadow: 0 4px 24px #2563eb11, 0 2px 8px #0002;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
     border: 2px solid var(--border-color);
     background: var(--container-bg);
     animation: fadeInMessage 0.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -227,23 +235,24 @@ body:not(.light-mode) .chat-app__message.ai-message {
     padding: var(--space-md) var(--space-lg);
     background: var(--container-bg);
     border-top: 1.5px solid var(--border-color);
-    box-shadow: 0 -2px 8px #0001;
+    box-shadow: 0 -4px 24px #2563eb11, 0 -2px 8px #0001;
     position: fixed;
     bottom: 0;
     left: 0;
     width: 100vw;
     z-index: 2000;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
 .chat-app__message-input {
     flex: 1;
     padding: 14px 18px;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     border: 1.5px solid var(--border-color);
-    font-size: 1.08rem;
+    font-size: var(--font-sm);
     background: #f3f6fa;
     color: var(--text-color);
-    box-shadow: 0 1px 4px #0001;
+    box-shadow: var(--shadow-xs);
     transition: border-color 0.2s, box-shadow 0.2s;
 }
 .chat-app__message-input:focus {
@@ -255,12 +264,12 @@ body:not(.light-mode) .chat-app__message.ai-message {
     padding: 12px 28px;
     border: none;
     border-radius: var(--radius-md);
-    background: linear-gradient(90deg, var(--primary-color) 80%, #1741a6 100%);
+    background: var(--primary-gradient);
     color: #fff;
-    font-size: 1.08rem;
+    font-size: var(--font-sm);
     font-weight: 600;
     cursor: pointer;
-    box-shadow: 0 2px 8px #2563eb22;
+    box-shadow: var(--shadow-sm);
     transition: background 0.18s, color 0.18s, box-shadow 0.18s, transform 0.12s;
 }
 .chat-app__send-button:hover, .chat-app__send-button:focus {
@@ -273,7 +282,16 @@ body:not(.light-mode) .chat-app__message.ai-message {
 .chat-app__send-button:active {
     filter: brightness(0.97);
     transform: scale(0.98);
-    box-shadow: 0 1px 4px #2563eb22;
+    box-shadow: var(--shadow-xs);
+}
+
+.chat-app__send-button:disabled {
+    background: #cbd5e1;
+    color: #fff;
+    cursor: not-allowed;
+    opacity: 0.6;
+    box-shadow: none;
+    filter: grayscale(0.2) brightness(0.98);
 }
 
 .chat-app__model-select {
@@ -308,11 +326,11 @@ body:not(.light-mode) .chat-app__message.ai-message {
     margin: 0 auto;
     left: 0; right: 0; top: 0; bottom: 0;
     position: relative;
-    background: rgba(255,255,255,0.85);
+    background: var(--glass-bg);
     backdrop-filter: blur(16px) saturate(1.3);
     border: 1.5px solid rgba(180,200,255,0.25);
-    box-shadow: 0 12px 40px #2563eb22, 0 2px 12px #2563eb11;
-    border-radius: 22px;
+    box-shadow: var(--shadow-glass);
+    border-radius: var(--radius-lg);
     padding: 38px 32px 28px 32px;
     min-width: 340px;
     max-width: 98vw;
@@ -366,7 +384,7 @@ body:not(.light-mode) .chat-app__message.ai-message {
     background: #f3f6fa;
     color: var(--text-color);
     transition: border-color 0.2s, box-shadow 0.2s;
-    box-shadow: 0 1px 4px #0001;
+    box-shadow: var(--shadow-xs);
 }
 .settings-modal__select:focus {
     border-color: var(--primary-color);
@@ -565,7 +583,7 @@ body:not(.light-mode) .chat-app__message.ai-message {
     z-index: 101;
     width: calc(100% - 32px);
     max-width: 700px;
-    background: rgba(234, 243, 255, 0.98);
+    background: var(--glass-bg);
     padding: 12px 24px;
     box-sizing: border-box;
     text-align: center;
@@ -776,12 +794,12 @@ body:not(.light-mode) .chat-app__timestamp {
 }
 
 @keyframes fadeInMessage {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(16px) scale(0.98); }
+    to { opacity: 1; transform: none; }
 }
 
 body.dark-mode, body.dark-mode .chat-app {
-    background: linear-gradient(120deg, #181c20 0%, #23272e 100%);
+    background: linear-gradient(120deg, #23272e 0%, #1e293b 100%);
     color: var(--text-color);
 }
 
@@ -910,7 +928,7 @@ body:not(.light-mode) a:hover {
 
 /* 1. Use variables for all backgrounds, borders, and text in dark mode */
 body:not(.light-mode) {
-    background: linear-gradient(120deg, #181c20 0%, #23272e 100%);
+    background: linear-gradient(120deg, #23272e 0%, #1e293b 100%);
     color: var(--text-color);
 }
 body:not(.light-mode) .chat-app,
@@ -1135,10 +1153,12 @@ button:active, .chat-app__send-button:active, .settings-modal__button:active {
     border: none;
 }
 .chat-app__send-button:disabled {
-    background: #b0b0b0;
+    background: #cbd5e1;
     color: #fff;
     cursor: not-allowed;
-    opacity: 0.7;
+    opacity: 0.6;
+    box-shadow: none;
+    filter: grayscale(0.2) brightness(0.98);
 }
 
 .chat-app__message-input, .settings-modal__select, .settings-modal__checkbox, input[type="password"] {
@@ -1822,4 +1842,84 @@ body:not(.light-mode) .chat-app__message.plan-message {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
+}
+
+/* --- Status Bar, Planning Bar, Empty State --- */
+.chat-app__status-bar, .planning-bar, .empty-state {
+    background: var(--glass-bg);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-glass);
+    border: 1.5px solid rgba(180,200,255,0.18);
+    color: var(--text-color);
+    margin: var(--space-md) 0;
+    padding: var(--space-sm) var(--space-md);
+    font-size: var(--font-xs);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.empty-state {
+    justify-content: center;
+    flex-direction: column;
+    min-height: 180px;
+    text-align: center;
+    color: var(--text-light-color);
+    font-size: var(--font-md);
+    opacity: 0.8;
+}
+
+/* --- Avatars & Icons --- */
+.avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    box-shadow: 0 2px 8px #0001;
+    margin-right: var(--space-sm);
+    object-fit: cover;
+    border: 2px solid var(--primary-color);
+    background: #fff;
+}
+
+/* --- Micro-interactions for loading/empty states --- */
+.spinner {
+    width: 32px;
+    height: 32px;
+    border: 4px solid #e0e7ef;
+    border-top: 4px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto;
+}
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* --- Responsive Tweaks --- */
+@media (max-width: 600px) {
+    .chat-app__header, .settings-modal__content {
+        padding: var(--space-md) var(--space-xs);
+    }
+    .chat-app__message {
+        max-width: 98vw;
+        font-size: var(--font-xs);
+    }
+    .chat-app__controls {
+        flex-direction: column;
+        gap: var(--space-xs);
+        padding: var(--space-sm) var(--space-xs);
+    }
+    .settings-modal__content {
+        min-width: unset;
+        padding: var(--space-md) var(--space-xs);
+    }
+}
+
+/* --- Enhanced Focus/Active States --- */
+:focus, .chat-app__send-button:focus, .settings-modal__button:focus, .chat-app__settings-button:focus, .chat-app__message-input:focus, .settings-modal__select:focus, input[type="password"]:focus {
+    outline: 2.5px solid var(--primary-color) !important;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px #2563eb33;
+    z-index: 10;
 } 
