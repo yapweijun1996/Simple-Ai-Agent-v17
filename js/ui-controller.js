@@ -739,6 +739,49 @@ const UIController = (function() {
         if (bar) bar.style.display = 'none';
     }
 
+    // Helper: Show animated thinking indicator in chat
+    function showThinkingIndicator() {
+        let chatWindow = document.getElementById('chat-window');
+        if (!chatWindow) return;
+        // Remove any existing indicator
+        let existing = document.getElementById('thinking-indicator');
+        if (existing) existing.remove();
+        // Create spinner/dots
+        const indicator = document.createElement('div');
+        indicator.id = 'thinking-indicator';
+        indicator.className = 'thinking-indicator';
+        indicator.innerHTML = '<span class="spinner"></span> <span>Thinking...</span>';
+        chatWindow.appendChild(indicator);
+        autoScrollToBottom();
+    }
+    // Helper: Remove thinking indicator
+    function hideThinkingIndicator() {
+        let existing = document.getElementById('thinking-indicator');
+        if (existing) existing.remove();
+    }
+    // Helper: Auto-scroll to bottom if user is at bottom
+    function autoScrollToBottom() {
+        const chatWindow = document.getElementById('chat-window');
+        if (!chatWindow) return;
+        // Only scroll if user is near the bottom
+        const threshold = 80;
+        const atBottom = chatWindow.scrollHeight - chatWindow.scrollTop - chatWindow.clientHeight < threshold;
+        if (atBottom) {
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+    }
+    // Patch addMessage to auto-scroll and handle thinking indicator
+    const originalAddMessage = addMessage;
+    addMessage = function(sender, text, type) {
+        hideThinkingIndicator();
+        originalAddMessage.apply(this, arguments);
+        autoScrollToBottom();
+    };
+    // Expose for agent logic
+    window.UIController.showThinkingIndicator = showThinkingIndicator;
+    window.UIController.hideThinkingIndicator = hideThinkingIndicator;
+    window.UIController.autoScrollToBottom = autoScrollToBottom;
+
     // Public API
     return Utils.debugWrapAll({
         init,
