@@ -1427,6 +1427,11 @@ If you output anything else, the system will reject your response.
         URL.revokeObjectURL(url);
     }
 
+    // Alias for robust plan extraction (backward compatibility)
+    function robustExtractPlanFromText(text) {
+        return extractPlanFromText(text);
+    }
+
     // Public API
     return {
         init,
