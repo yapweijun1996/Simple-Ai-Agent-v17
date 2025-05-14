@@ -111,12 +111,27 @@ const SettingsController = (function() {
      * Hides the settings modal
      */
     function hideSettingsModal() {
-        if (settingsModal) {
-            settingsModal.style.display = 'none';
-            // Restore focus to settings button
-            if (showSettingsModal.lastFocused) {
-                showSettingsModal.lastFocused.focus();
+        // Defensive: re-query modal in case reference is stale
+        let modal = settingsModal || document.getElementById('settings-modal');
+        if (modal) {
+            try {
+                modal.style.display = 'none';
+                // Restore focus to settings button
+                if (showSettingsModal.lastFocused) {
+                    showSettingsModal.lastFocused.focus();
+                }
+                // Debug log
+                if (window && window.console) console.log('[Settings] Modal hidden');
+            } catch (err) {
+                // Fallback: forcibly remove modal from DOM
+                if (modal.parentNode) {
+                    modal.parentNode.removeChild(modal);
+                    if (window && window.console) console.log('[Settings] Modal forcibly removed from DOM');
+                }
+                settingsModal = null;
             }
+        } else {
+            if (window && window.console) console.log('[Settings] No modal found to hide');
         }
     }
 
@@ -155,7 +170,8 @@ const SettingsController = (function() {
             // Save settings to cookie
             Utils.saveSettingsToCookie(settings);
         } finally {
-            // Always close the modal after saving
+            // Defensive: always re-query and hide modal
+            if (window && window.console) console.log('[Settings] saveSettings: closing modal');
             hideSettingsModal();
         }
     }
