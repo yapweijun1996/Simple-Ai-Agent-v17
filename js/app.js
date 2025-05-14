@@ -153,3 +153,54 @@ const App = (function() {
 })();
 
 // The app will auto-initialize when the DOM is loaded 
+
+// Minimal app.js for simple chat UI
+
+document.addEventListener('DOMContentLoaded', function () {
+  const chatWindow = document.getElementById('chat-window');
+  const messageInput = document.getElementById('message-input');
+  const sendButton = document.getElementById('send-button');
+
+  function addMessage(sender, text) {
+    const msg = document.createElement('div');
+    msg.className = 'chat-app__message ' + (sender === 'user' ? 'user-message' : 'ai-message');
+    msg.textContent = text;
+    chatWindow.appendChild(msg);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+  }
+
+  function mockAIResponse(userText) {
+    // Replace this with a real API call if needed
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve('AI: You said "' + userText + '"');
+      }, 700);
+    });
+  }
+
+  function sendMessage() {
+    const text = messageInput.value.trim();
+    if (!text) return;
+    addMessage('user', text);
+    messageInput.value = '';
+    sendButton.disabled = true;
+    mockAIResponse(text).then((reply) => {
+      addMessage('ai', reply);
+      sendButton.disabled = false;
+      messageInput.focus();
+    });
+  }
+
+  sendButton.addEventListener('click', sendMessage);
+  messageInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+  messageInput.addEventListener('input', function () {
+    sendButton.disabled = !messageInput.value.trim();
+  });
+  sendButton.disabled = true;
+  messageInput.focus();
+}); 
