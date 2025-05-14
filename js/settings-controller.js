@@ -39,8 +39,10 @@ const SettingsController = (function() {
         // Remove previous event listeners if any
         const saveBtn = document.getElementById('save-settings');
         const closeBtn = document.getElementById('close-settings');
-        saveBtn.replaceWith(saveBtn.cloneNode(true));
-        closeBtn.replaceWith(closeBtn.cloneNode(true));
+        const newSaveBtn = saveBtn.cloneNode(true);
+        const newCloseBtn = closeBtn.cloneNode(true);
+        saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
         // Re-query after replace
         document.getElementById('save-settings').addEventListener('click', saveSettings);
         document.getElementById('close-settings').addEventListener('click', hideSettingsModal);
@@ -122,42 +124,40 @@ const SettingsController = (function() {
      * Saves settings from the modal
      */
     function saveSettings() {
-        const streamingEnabled = document.getElementById('streaming-toggle').checked;
-        const cotEnabled = document.getElementById('cot-toggle').checked;
-        const showThinkingEnabled = document.getElementById('show-thinking-toggle').checked;
-        const selectedModelValue = document.getElementById('model-select').value;
-        const darkModeEnabled = document.getElementById('dark-mode-toggle').checked;
-        const debugEnabled = document.getElementById('debug-toggle').checked;
-        
-        settings = {
-            ...settings,
-            streaming: streamingEnabled,
-            enableCoT: cotEnabled,
-            showThinking: showThinkingEnabled,
-            selectedModel: selectedModelValue,
-            darkMode: darkModeEnabled,
-            debug: debugEnabled
-        };
-        
-        // Update light/dark mode class
-        if (darkModeEnabled) {
-            document.body.classList.remove('light-mode');
-        } else {
-            document.body.classList.add('light-mode');
+        try {
+            const streamingEnabled = document.getElementById('streaming-toggle').checked;
+            const cotEnabled = document.getElementById('cot-toggle').checked;
+            const showThinkingEnabled = document.getElementById('show-thinking-toggle').checked;
+            const selectedModelValue = document.getElementById('model-select').value;
+            const darkModeEnabled = document.getElementById('dark-mode-toggle').checked;
+            const debugEnabled = document.getElementById('debug-toggle').checked;
+            settings = {
+                ...settings,
+                streaming: streamingEnabled,
+                enableCoT: cotEnabled,
+                showThinking: showThinkingEnabled,
+                selectedModel: selectedModelValue,
+                darkMode: darkModeEnabled,
+                debug: debugEnabled
+            };
+            // Update light/dark mode class
+            if (darkModeEnabled) {
+                document.body.classList.remove('light-mode');
+            } else {
+                document.body.classList.add('light-mode');
+            }
+            // Update the chat controller settings
+            ChatController.updateSettings(settings);
+            // Broadcast to all modules if available
+            if (typeof ChatController !== 'undefined' && ChatController.broadcastSettingsUpdate) {
+                ChatController.broadcastSettingsUpdate(settings);
+            }
+            // Save settings to cookie
+            Utils.saveSettingsToCookie(settings);
+        } finally {
+            // Always close the modal after saving
+            hideSettingsModal();
         }
-        
-        // Update the chat controller settings
-        ChatController.updateSettings(settings);
-        // Broadcast to all modules if available
-        if (typeof ChatController !== 'undefined' && ChatController.broadcastSettingsUpdate) {
-            ChatController.broadcastSettingsUpdate(settings);
-        }
-        
-        // Save settings to cookie
-        Utils.saveSettingsToCookie(settings);
-        
-        // Hide modal
-        hideSettingsModal();
     }
 
     /**
