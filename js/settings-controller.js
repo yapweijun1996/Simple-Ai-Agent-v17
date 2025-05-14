@@ -120,8 +120,9 @@ const SettingsController = (function() {
                 if (showSettingsModal.lastFocused) {
                     showSettingsModal.lastFocused.focus();
                 }
-                // Debug log
                 if (window && window.console) console.log('[Settings] Modal hidden');
+                // Forcibly null the reference after hiding
+                settingsModal = null;
             } catch (err) {
                 // Fallback: forcibly remove modal from DOM
                 if (modal.parentNode) {
@@ -133,6 +134,7 @@ const SettingsController = (function() {
         } else {
             if (window && window.console) console.log('[Settings] No modal found to hide');
         }
+        if (window && window.console) console.log('[Settings] hideSettingsModal complete. settingsModal:', settingsModal);
     }
 
     /**
