@@ -100,7 +100,7 @@ const ChatController = (function() {
         let obj;
         try {
             // Sanitize before parsing
-            const sanitized = sanitizeJsonString(jsonStr);
+            const sanitized = Utils.sanitizeJsonString(jsonStr);
             try {
                 obj = JSON.parse(sanitized);
             } catch (err) {
