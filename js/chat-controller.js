@@ -1391,7 +1391,12 @@ Given the user question: "${userQuery}", output a numbered list of actionable st
         logAgentEvent('PlanGenerated', planText);
 
         // === Agent B: Plan Verifier/Adapter ===
-        const verifyPrompt = `Here is a plan generated for the question: "${userQuery}"\n\nPlan:\n${planText}\n\nIs this plan actionable and clear? If not, please rewrite it as a clear, step-by-step numbered list. If yes, return the plan as a numbered list. Only output the improved plan, nothing else.`;
+        const verifyPrompt = `Here is a plan generated for the question: "${userQuery}"
+
+Plan:
+${planText}
+
+Is this plan actionable and clear? If not, please rewrite it as a clear, step-by-step numbered list. If yes, return the plan as a numbered list. Only output the improved plan, nothing else.`;
         logAgentEvent('PlanVerifyPrompt', verifyPrompt);
         const verifiedPlanText = await callLLM(verifyPrompt, undefined, AGENT_SYSTEM_PROMPT);
         logAgentEvent('PlanVerified', verifiedPlanText);
@@ -1401,6 +1406,32 @@ Given the user question: "${userQuery}", output a numbered list of actionable st
         if ((!plan || plan.length === 0) && verifiedPlanText.trim()) {
             // Fallback: treat each line as a step
             plan = verifiedPlanText.split('\n').map(l => l.trim()).filter(Boolean);
+        }
+
+        // === Plan Validation: Ensure only allowed tools are used ===
+        const allowedTools = window.toolHandlers ? Object.keys(window.toolHandlers) : [];
+        const invalidSteps = [];
+        plan.forEach((step, idx) => {
+            // Try to detect tool call in step (simple regex for {tool:...} or tool name)
+            const toolCallMatch = step.match(/tool["']?\s*:?\s*["']?([a-zA-Z0-9_\-]+)/i);
+            if (toolCallMatch) {
+                const toolName = toolCallMatch[1];
+                if (!allowedTools.includes(toolName)) {
+                    invalidSteps.push({ idx, toolName, step });
+                }
+            }
+        });
+        if (invalidSteps.length > 0) {
+            logAgentEvent('PlanInvalidTools', invalidSteps);
+            // Prompt agent to re-plan using only allowed tools
+            const replanPrompt = `The following plan steps reference tools that are not available: ${invalidSteps.map(s => s.toolName).join(', ')}.\n\nAllowed tools are: ${allowedTools.join(', ')}.\n\nPlease rewrite the plan as a clear, step-by-step numbered list using only the allowed tools.`;
+            logAgentEvent('PlanReplanPrompt', replanPrompt);
+            const replanText = await callLLM(replanPrompt, undefined, AGENT_SYSTEM_PROMPT);
+            logAgentEvent('PlanReplanned', replanText);
+            plan = extractPlanFromText(replanText);
+            if ((!plan || plan.length === 0) && replanText.trim()) {
+                plan = replanText.split('\n').map(l => l.trim()).filter(Boolean);
+            }
         }
         agentStats.totalSteps = plan.length;
         return plan;
