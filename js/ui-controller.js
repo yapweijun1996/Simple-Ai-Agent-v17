@@ -777,10 +777,6 @@ const UIController = (function() {
         originalAddMessage.apply(this, arguments);
         autoScrollToBottom();
     };
-    // Expose for agent logic
-    window.UIController.showThinkingIndicator = showThinkingIndicator;
-    window.UIController.hideThinkingIndicator = hideThinkingIndicator;
-    window.UIController.autoScrollToBottom = autoScrollToBottom;
 
     // Public API
     const api = Utils.debugWrapAll({
