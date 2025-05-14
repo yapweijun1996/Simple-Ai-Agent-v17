@@ -1433,7 +1433,7 @@ If you output anything else, the system will reject your response.
     }
 
     // Public API
-    return {
+    return Utils.debugWrapAll({
         init,
         updateSettings,
         getSettings,
@@ -1444,5 +1444,5 @@ If you output anything else, the system will reject your response.
         processToolCall,
         getToolCallHistory: () => [...state.toolCallHistory],
         isValidUserInput,
-    };
+    }, 'CHAT');
 })(); 

@@ -355,6 +355,43 @@ const Utils = (function() {
         return jsonStr;
     }
 
+    /**
+     * Wraps a function to log its call and arguments if debug mode is enabled
+     * @param {Function} fn - The function to wrap
+     * @param {string} name - The function name for logging
+     * @param {string} [module] - Optional module name for prefix
+     * @returns {Function}
+     */
+    function debugWrap(fn, name, module = 'FUNC') {
+        return function(...args) {
+            try {
+                const debug = (typeof SettingsController !== 'undefined' && SettingsController.getSettings && SettingsController.getSettings().debug);
+                if (debug) {
+                    console.log(`[${module}] ${name} called`, ...args);
+                }
+            } catch {}
+            return fn.apply(this, args);
+        };
+    }
+
+    /**
+     * Wraps all functions in an object with debugWrap
+     * @param {Object} obj - The object whose functions to wrap
+     * @param {string} [module] - Optional module name for prefix
+     * @returns {Object} - New object with wrapped functions
+     */
+    function debugWrapAll(obj, module = 'FUNC') {
+        const wrapped = {};
+        for (const key in obj) {
+            if (typeof obj[key] === 'function') {
+                wrapped[key] = debugWrap(obj[key], key, module);
+            } else {
+                wrapped[key] = obj[key];
+            }
+        }
+        return wrapped;
+    }
+
     // Public API
     return {
         decrypt,
@@ -376,6 +413,8 @@ const Utils = (function() {
         fetchWithProxyRetry,
         debugLog,
         pretty,
-        sanitizeJsonString
+        sanitizeJsonString,
+        debugWrap,
+        debugWrapAll
     };
 })(); 

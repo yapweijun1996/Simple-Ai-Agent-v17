@@ -753,7 +753,7 @@ const UIController = (function() {
     }
 
     // Public API
-    return {
+    return Utils.debugWrapAll({
         init,
         setupEventHandlers,
         addMessage,
@@ -772,12 +772,6 @@ const UIController = (function() {
         clearStatusUnderToken,
         showSpinnerUnderToken,
         hideSpinnerUnderToken,
-        /**
-         * Adds a chat bubble with raw HTML content (for tool results)
-         * @param {string} sender - 'user' or 'ai'
-         * @param {string} html - HTML string for the bubble content
-         * @returns {Element} - The created message element
-         */
         addHtmlMessage(sender, html) {
             const chatWindow = document.getElementById('chat-window');
             const messageElement = Utils.createFromTemplate('message-template');
@@ -796,5 +790,5 @@ const UIController = (function() {
         renderPlanningBar,
         updatePlanningBar,
         hidePlanningBar,
-    };
+    }, 'UI');
 })(); 
