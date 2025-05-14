@@ -1384,54 +1384,67 @@ If you understand, follow these instructions for every relevant question. Do NOT
      * @returns {Promise<string[]>}
      */
     async function generatePlan(userQuery) {
-        const prompt = `
-Given the user question: "${userQuery}", output a numbered list of actionable steps to answer it. Each step should be specific and, if possible, correspond to a tool call or reasoning action.`;
-        logAgentEvent('PlanPrompt', prompt);
-        const planText = await callLLM(prompt, undefined, AGENT_SYSTEM_PROMPT);
-        logAgentEvent('PlanGenerated', planText);
-
-        // === Agent B: Plan Verifier/Adapter ===
-        const verifyPrompt = `Here is a plan generated for the question: "${userQuery}"
-
-Plan:
-${planText}
-
-Is this plan actionable and clear? If not, please rewrite it as a clear, step-by-step numbered list. If yes, return the plan as a numbered list. Only output the improved plan, nothing else.`;
-        logAgentEvent('PlanVerifyPrompt', verifyPrompt);
-        const verifiedPlanText = await callLLM(verifyPrompt, undefined, AGENT_SYSTEM_PROMPT);
-        logAgentEvent('PlanVerified', verifiedPlanText);
-
-        // Use the existing extraction logic, but now only as a fallback
-        let plan = extractPlanFromText(verifiedPlanText);
-        if ((!plan || plan.length === 0) && verifiedPlanText.trim()) {
-            // Fallback: treat each line as a step
-            plan = verifiedPlanText.split('\n').map(l => l.trim()).filter(Boolean);
-        }
-
-        // === Plan Validation: Ensure only allowed tools are used ===
         const allowedTools = window.toolHandlers ? Object.keys(window.toolHandlers) : [];
-        const invalidSteps = [];
-        plan.forEach((step, idx) => {
-            // Try to detect tool call in step (simple regex for {tool:...} or tool name)
-            const toolCallMatch = step.match(/tool["']?\s*:?\s*["']?([a-zA-Z0-9_\-]+)/i);
-            if (toolCallMatch) {
-                const toolName = toolCallMatch[1];
-                if (!allowedTools.includes(toolName)) {
-                    invalidSteps.push({ idx, toolName, step });
+        const allowedToolsList = allowedTools.map(t => `- ${t}`).join('\n');
+        const maxPlanRetries = 3;
+        let plan = [];
+        let planText = '';
+        let verifiedPlanText = '';
+        let invalidSteps = [];
+        let attempt = 0;
+        let lastPrompt = '';
+        while (attempt < maxPlanRetries) {
+            // 1. Plan Generation Prompt
+            const prompt = `
+You are an AI agent. Given the user question: "${userQuery}", output a numbered list of actionable steps to answer it.\n\nIMPORTANT: You may ONLY use the following tools in your plan:\n${allowedToolsList}\nIf a tool is needed, use only these tool names. Do NOT invent new tools.\nIf no tool is needed, just say so.\nEach step should be specific and, if possible, correspond to a tool call or reasoning action.`;
+            lastPrompt = prompt;
+            logAgentEvent('PlanPrompt', prompt);
+            planText = await callLLM(prompt, undefined, AGENT_SYSTEM_PROMPT);
+            logAgentEvent('PlanGenerated', planText);
+
+            // 2. Plan Verification Prompt
+            const verifyPrompt = `Here is a plan generated for the question: "${userQuery}"\n\nPlan:\n${planText}\n\nIs this plan actionable and clear? If not, please rewrite it as a clear, step-by-step numbered list.\nIMPORTANT: You may ONLY use the following tools in your plan:\n${allowedToolsList}\nIf a tool is needed, use only these tool names. Do NOT invent new tools.\nIf yes, return the plan as a numbered list. Only output the improved plan, nothing else.`;
+            lastPrompt = verifyPrompt;
+            logAgentEvent('PlanVerifyPrompt', verifyPrompt);
+            verifiedPlanText = await callLLM(verifyPrompt, undefined, AGENT_SYSTEM_PROMPT);
+            logAgentEvent('PlanVerified', verifiedPlanText);
+
+            // Use the existing extraction logic, but now only as a fallback
+            plan = extractPlanFromText(verifiedPlanText);
+            if ((!plan || plan.length === 0) && verifiedPlanText.trim()) {
+                plan = verifiedPlanText.split('\n').map(l => l.trim()).filter(Boolean);
+            }
+
+            // === Plan Validation: Ensure only allowed tools are used ===
+            invalidSteps = [];
+            plan.forEach((step, idx) => {
+                // Try to detect tool call in step (simple regex for {tool:...} or tool name)
+                const toolCallMatch = step.match(/tool["']?\s*:?\s*["']?([a-zA-Z0-9_\-]+)/i);
+                if (toolCallMatch) {
+                    const toolName = toolCallMatch[1];
+                    if (!allowedTools.includes(toolName)) {
+                        invalidSteps.push({ idx, toolName, step });
+                    }
+                } else {
+                    // Also check for direct mentions of tool names not in allowedTools
+                    allowedTools.forEach(tool => {
+                        if (step.toLowerCase().includes(tool.toLowerCase())) return;
+                    });
+                    // If step mentions 'tool' or 'use' but not an allowed tool, flag as invalid
+                    if (/tool|use|call/i.test(step) && !allowedTools.some(t => step.toLowerCase().includes(t.toLowerCase()))) {
+                        invalidSteps.push({ idx, toolName: 'unknown', step });
+                    }
                 }
-            }
-        });
-        if (invalidSteps.length > 0) {
+            });
+            if (invalidSteps.length === 0) break; // Plan is valid
             logAgentEvent('PlanInvalidTools', invalidSteps);
-            // Prompt agent to re-plan using only allowed tools
-            const replanPrompt = `The following plan steps reference tools that are not available: ${invalidSteps.map(s => s.toolName).join(', ')}.\n\nAllowed tools are: ${allowedTools.join(', ')}.\n\nPlease rewrite the plan as a clear, step-by-step numbered list using only the allowed tools.`;
-            logAgentEvent('PlanReplanPrompt', replanPrompt);
-            const replanText = await callLLM(replanPrompt, undefined, AGENT_SYSTEM_PROMPT);
-            logAgentEvent('PlanReplanned', replanText);
-            plan = extractPlanFromText(replanText);
-            if ((!plan || plan.length === 0) && replanText.trim()) {
-                plan = replanText.split('\n').map(l => l.trim()).filter(Boolean);
-            }
+            attempt++;
+        }
+        if (invalidSteps.length > 0) {
+            // After retries, still invalid
+            UIController.addMessage('ai', `Sorry, I could not generate a valid plan using only the available tools: ${allowedTools.join(', ')}. Please try rephrasing your question or contact support.`);
+            logAgentEvent('PlanFailedAfterRetries', { userQuery, lastPrompt, plan, invalidSteps });
+            return [];
         }
         agentStats.totalSteps = plan.length;
         return plan;
