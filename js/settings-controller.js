@@ -143,6 +143,10 @@ const SettingsController = (function() {
         
         // Update the chat controller settings
         ChatController.updateSettings(settings);
+        // Broadcast to all modules if available
+        if (typeof ChatController !== 'undefined' && ChatController.broadcastSettingsUpdate) {
+            ChatController.broadcastSettingsUpdate(settings);
+        }
         
         // Save settings to cookie
         Utils.saveSettingsToCookie(settings);

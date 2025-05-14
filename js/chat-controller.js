@@ -33,18 +33,24 @@ const ChatController = (function() {
     async function executeToolHandler(tool, args) {
         try {
             if (typeof window.toolHandlers !== 'object' || !window.toolHandlers) {
-                UIController.addMessage('ai', 'Error: Tool handler registry not found.');
+                const msg = 'Error: Tool handler registry not found.';
+                UIController.addMessage('ai', msg);
+                UIController.showStatus(msg + ' Please refresh the page or check script loading order.', getAgentDetails());
                 return false;
             }
             const handler = window.toolHandlers[tool];
             if (typeof handler !== 'function') {
-                UIController.addMessage('ai', `Error: No handler found for tool "${tool}".`);
+                const msg = `Error: No handler found for tool "${tool}".`;
+                UIController.addMessage('ai', msg);
+                UIController.showStatus(msg + ' Please check your tool configuration.', getAgentDetails());
                 return false;
             }
             await handler(args);
             return true;
         } catch (err) {
-            UIController.addMessage('ai', `Error executing tool handler for "${tool}": ${err.message}`);
+            const msg = `Error executing tool handler for "${tool}": ${err && err.message ? err.message : err}`;
+            UIController.addMessage('ai', msg);
+            UIController.showStatus(msg + ' See console for details.', getAgentDetails());
             return false;
         }
     }
@@ -217,6 +223,11 @@ Begin Reasoning Now:
      * @param {Object} initialSettings - Optional initial settings
      */
     function init(initialSettings) {
+        // Ensure toolHandlers is registered
+        if (typeof window.toolHandlers !== 'object' || !window.toolHandlers) {
+            UIController.addMessage('ai', 'Critical Error: Tool handler registry not found. Please ensure tool-handlers.js is loaded before chat-controller.js.');
+            console.error('Critical Error: window.toolHandlers is not defined.');
+        }
         // Reset and seed chatHistory with system tool instructions
         state.chatHistory = [{
             role: 'system',
@@ -319,8 +330,8 @@ If you understand, follow these instructions for every relevant question. Do NOT
             }
         } catch (error) {
             Utils.debugLog('[sendMessage] Error:', error);
-            let userMessage = 'Error: ' + error.message;
-            if (error.message && error.message.includes('Failed to fetch')) {
+            let userMessage = 'Error: ' + (error && error.message ? error.message : error);
+            if (userMessage.includes('Failed to fetch')) {
                 userMessage += '\nPossible causes: network issue, CORS restriction, invalid API key, the API endpoint is down, or a proxy server is blocked.';
                 userMessage += '\n\nTroubleshooting tips:';
                 userMessage += '\n- Check your internet connection.';
@@ -331,6 +342,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
             }
             UIController.showError(userMessage);
             UIController.addMessage('ai', userMessage);
+            UIController.showStatus(userMessage, getAgentDetails());
             console.error('Error sending message:', error);
         } finally {
             Utils.updateTokenDisplay(state.totalTokens);
@@ -769,6 +781,10 @@ If you understand, follow these instructions for every relevant question. Do NOT
     // Helper: Tool call loop protection
     function isToolCallLoop(tool, args) {
         const callSignature = JSON.stringify({ tool, args });
+        // Reset loop counter if tool changes
+        if (state.lastToolCall && state.lastToolCall !== callSignature) {
+            state.lastToolCallCount = 0;
+        }
         if (state.lastToolCall === callSignature) {
             state.lastToolCallCount++;
         } else {
@@ -1529,6 +1545,10 @@ If you output anything else, the system will reject your response.
     // Improved tool call loop protection: reset on new tool, warn user
     function isToolCallLoop(tool, args) {
         const callSignature = JSON.stringify({ tool, args });
+        // Reset loop counter if tool changes
+        if (state.lastToolCall && state.lastToolCall !== callSignature) {
+            state.lastToolCallCount = 0;
+        }
         if (state.lastToolCall === callSignature) {
             state.lastToolCallCount++;
         } else {
@@ -1600,4 +1620,20 @@ If you output anything else, the system will reject your response.
         getToolCallHistory: () => [...state.toolCallHistory],
         isValidUserInput,
     }, 'CHAT');
+
+    // Helper: Broadcast settings to all relevant modules
+    function broadcastSettingsUpdate(newSettings) {
+        if (typeof ChatController !== 'undefined' && ChatController.updateSettings) {
+            ChatController.updateSettings(newSettings);
+        }
+        if (typeof ToolsService !== 'undefined' && ToolsService.updateSettings) {
+            ToolsService.updateSettings(newSettings);
+        }
+        if (typeof ApiService !== 'undefined' && ApiService.updateSettings) {
+            ApiService.updateSettings(newSettings);
+        }
+        if (typeof UIController !== 'undefined' && UIController.updateSettings) {
+            UIController.updateSettings(newSettings);
+        }
+    }
 })(); 
