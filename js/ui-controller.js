@@ -815,12 +815,12 @@ const UIController = (function() {
     // Export to global scope before adding extra properties
     if (typeof window !== 'undefined') {
         window.UIController = api;
+        // Defensive: only assign properties if UIController is defined
+        if (window.UIController) {
+            window.UIController.showThinkingIndicator = showThinkingIndicator;
+            window.UIController.hideThinkingIndicator = hideThinkingIndicator;
+            window.UIController.autoScrollToBottom = autoScrollToBottom;
+        }
     }
-
-    // Now add extra properties to UIController
-    window.UIController.showThinkingIndicator = showThinkingIndicator;
-    window.UIController.hideThinkingIndicator = hideThinkingIndicator;
-    window.UIController.autoScrollToBottom = autoScrollToBottom;
-
     return api;
 })(); 
