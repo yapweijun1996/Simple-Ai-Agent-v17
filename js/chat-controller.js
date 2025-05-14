@@ -44,7 +44,6 @@ const ChatController = (function() {
         // Remove trailing commas before } or ]
         text = text.replace(/,\s*([}\]])/g, '$1');
         // Remove newlines inside string values (e.g., URLs)
-        // This regex finds quoted strings that span multiple lines and replaces newlines with ''
         text = text.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/gs, (m) => m.replace(/\n/g, ''));
         // Replace single quotes with double quotes
         text = text.replace(/'/g, '"');
@@ -60,7 +59,6 @@ const ChatController = (function() {
                 jsonStr = jsonMatch[0];
             } else {
                 // Try to extract tool call from common patterns (e.g., tool_call, tool, arguments, action)
-                // e.g. { tool: 'web_search', query: 'x' } or { action: 'web_search', query: 'x' }
                 const toolCallPattern = /(tool|action)\s*[:=]\s*['\"]?(\w+)['\"]?[,\s]+(arguments|query|url|queries)\s*[:=]\s*([\{\[].*[\}\]]|['\"].*?['\"])/s;
                 const m = text.match(toolCallPattern);
                 if (m) {
@@ -68,7 +66,9 @@ const ChatController = (function() {
                     if (m[3] === 'arguments') {
                         try {
                             args = JSON.parse(m[4]);
-                        } catch {}
+                        } catch (err) {
+                            Utils.debugLog('[extractToolCall] Fallback pattern arguments parse error:', err, m[4]);
+                        }
                     } else if (m[3] === 'query' || m[3] === 'url' || m[3] === 'queries') {
                         args[m[3]] = m[4].replace(/['\"]/g, '');
                     }
@@ -91,30 +91,32 @@ const ChatController = (function() {
                 Utils.debugLog('Tool JSON parse error:', err, 'from', jsonStr);
                 Utils.debugLog('Tool JSON parse error (sanitized):', err, 'from', sanitized);
                 // Fallback: regex for tool, arguments, query, url, action
-                const fallbackPattern = /(tool|action)\s*[:=]\s*['"]?(\w+)['"]?[,\s]+(arguments|query|url|queries)\s*[:=]\s*([\{\[].*[\}\]]|['"].*?['"])/s;
+                const fallbackPattern = /(tool|action)\s*[:=]\s*['\"]?(\w+)['\"]?[,\s]+(arguments|query|url|queries)\s*[:=]\s*([\{\[].*[\}\]]|['\"].*?['\"])/s;
                 const m = jsonStr.match(fallbackPattern);
                 if (m) {
                     let args = {};
                     if (m[3] === 'arguments') {
                         try {
                             args = JSON.parse(m[4]);
-                        } catch {}
+                        } catch (err2) {
+                            Utils.debugLog('[extractToolCall] Fallback pattern arguments parse error (sanitized):', err2, m[4]);
+                        }
                     } else if (m[3] === 'query' || m[3] === 'url' || m[3] === 'queries') {
                         args[m[3]] = m[4].replace(/['\"]/g, '');
                     }
                     return { tool: m[2], arguments: args };
                 }
-                // Show user-friendly error
-                UIController.addMessage('ai', 'Error: Could not parse tool call JSON. Please check the tool call format.');
+                // Show user-friendly error with more context
+                UIController.addMessage('ai', `Error: Could not parse tool call JSON.\nRaw: ${jsonStr}\nError: ${err.message}`);
+                Utils.debugLog('[extractToolCall] Could not parse tool call JSON. Raw:', jsonStr, 'Error:', err);
                 return null;
             }
         } catch (err) {
             Utils.debugLog('Tool JSON parse error (outer):', err, 'from', jsonStr);
-            UIController.addMessage('ai', 'Error: Could not parse tool call JSON. Please check the tool call format.');
+            UIController.addMessage('ai', `Error: Could not parse tool call JSON.\nRaw: ${jsonStr}\nError: ${err.message}`);
             return null;
         }
         // Accept alternative keys and normalize
-        // Flatten tool_call/tool_code/action objects
         if (obj.tool && typeof obj.arguments === 'object') {
             return obj;
         }
@@ -130,15 +132,12 @@ const ChatController = (function() {
         if (obj.tool_code && obj.url) {
             return { tool: obj.tool_code, arguments: { url: obj.url } };
         }
-        // Handle { tool: 'web_search', query: 'x' }
         if (obj.tool && obj.query) {
             return { tool: obj.tool, arguments: { query: obj.query } };
         }
-        // Handle { tool: 'web_search', queries: [...] }
         if (obj.tool && obj.queries) {
             return { tool: obj.tool, arguments: { queries: obj.queries } };
         }
-        // Handle { action: 'web_search', ... }
         if (obj.action && obj.query) {
             return { tool: obj.action, arguments: { query: obj.query } };
         }
@@ -148,6 +147,9 @@ const ChatController = (function() {
         if (obj.action && obj.url) {
             return { tool: obj.action, arguments: { url: obj.url } };
         }
+        // If we reach here, log and show error
+        Utils.debugLog('[extractToolCall] Parsed object did not match expected tool call schema:', obj);
+        UIController.addMessage('ai', `Error: Parsed tool call did not match expected schema.\nObject: ${Utils.pretty(obj)}`);
         return null;
     }
 
