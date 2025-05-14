@@ -174,7 +174,9 @@ const toolHandlers = {
             }
         }
         UIController.clearStatus();
-    }
+    },
+    // Alias: allow 'search' as a synonym for 'web_search'
+    search: web_search
 };
 
 // Export for use in chat-controller.js
