@@ -52,8 +52,11 @@ html, body {
     font-size: 18px;
     line-height: 1.7;
     letter-spacing: 0.01em;
-    font-family: Arial, sans-serif;
-    background: var(--bg-color);
+    font-family: 'Inter', 'Segoe UI', 'Arial', 'Helvetica Neue', sans-serif;
+    font-feature-settings: "ss01" on, "cv01" on;
+    background: linear-gradient(120deg, #f8fafc 0%, #e0e7ef 100%);
+    background-size: 200% 200%;
+    animation: bgGradientMove 12s ease-in-out infinite;
     color: var(--text-color);
     overflow: hidden;
 }
@@ -62,6 +65,7 @@ html, body {
 :focus {
     outline: 2.5px solid var(--primary-color) !important;
     outline-offset: 2px;
+    box-shadow: 0 0 0 4px #2563eb33;
 }
 
 /* -- Chat App Container ---------------------------------------------- */
@@ -73,7 +77,9 @@ html, body {
     height: 100%;
     margin: 0 auto;
     border: 1px solid var(--border-color);
-    background: var(--container-bg);
+    background: linear-gradient(120deg, #f8fafc 0%, #e0e7ef 100%);
+    background-size: 200% 200%;
+    animation: bgGradientMove 12s ease-in-out infinite;
 }
 
 /* -- Header Component ------------------------------------------------ */
@@ -157,12 +163,12 @@ html, body {
     padding: 0;
     margin: 22px 0;
     max-width: 80%;
-    border-radius: var(--radius-lg);
-    box-shadow: 0 4px 16px #0002;
+    border-radius: 22px;
+    box-shadow: 0 4px 24px #2563eb11, 0 2px 8px #0002;
     border: 2px solid var(--border-color);
     background: var(--container-bg);
-    animation: fadeInMessage 0.4s ease;
-    transition: box-shadow 0.2s, background 0.2s, border-color 0.2s;
+    animation: fadeInMessage 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: box-shadow 0.2s, background 0.2s, border-color 0.2s, transform 0.12s;
 }
 
 /* User vs AI styling */
@@ -302,10 +308,11 @@ body:not(.light-mode) .chat-app__message.ai-message {
     margin: 0 auto;
     left: 0; right: 0; top: 0; bottom: 0;
     position: relative;
-    background: rgba(255,255,255,0.96);
-    box-shadow: 0 12px 40px #0005, 0 2px 12px #2563eb22;
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(16px) saturate(1.3);
+    border: 1.5px solid rgba(180,200,255,0.25);
+    box-shadow: 0 12px 40px #2563eb22, 0 2px 12px #2563eb11;
     border-radius: 22px;
-    border: 1.5px solid var(--border-color);
     padding: 38px 32px 28px 32px;
     min-width: 340px;
     max-width: 98vw;
@@ -774,7 +781,7 @@ body:not(.light-mode) .chat-app__timestamp {
 }
 
 body.dark-mode, body.dark-mode .chat-app {
-    background: var(--bg-color);
+    background: linear-gradient(120deg, #181c20 0%, #23272e 100%);
     color: var(--text-color);
 }
 
@@ -903,7 +910,7 @@ body:not(.light-mode) a:hover {
 
 /* 1. Use variables for all backgrounds, borders, and text in dark mode */
 body:not(.light-mode) {
-    background: var(--bg-color);
+    background: linear-gradient(120deg, #181c20 0%, #23272e 100%);
     color: var(--text-color);
 }
 body:not(.light-mode) .chat-app,
@@ -1055,9 +1062,9 @@ body:not(.light-mode) .chat-app__settings-button:focus {
 
 /* --- Message Bubble Hover/Active Effects --- */
 .chat-app__message:hover {
-    box-shadow: 0 6px 24px #4f8cff33, 0 2px 8px #0002;
-    filter: brightness(1.03);
-    transition: box-shadow 0.2s, filter 0.2s;
+    box-shadow: 0 8px 32px #4f8cff33, 0 2px 8px #0002;
+    filter: brightness(1.05);
+    transform: translateY(-2px) scale(1.01);
 }
 
 /* --- Grouped Messages --- */
@@ -1110,28 +1117,16 @@ body:not(.light-mode) .chat-app__message.ai-message:hover {
 
 /* --- Modernized Button & Input Styles -- */
 button, .chat-app__send-button, .settings-modal__button {
-    border-radius: 10px;
-    box-shadow: 0 2px 8px #0002, 0 1.5px 8px #2563eb11;
+    box-shadow: 0 2px 8px #2563eb11, 0 1.5px 8px #fff8, 0 1.5px 8px #0001;
+    border-radius: 12px;
     border: none;
     font-weight: 600;
     letter-spacing: 0.01em;
     transition: background 0.2s, color 0.2s, box-shadow 0.2s, border-color 0.2s, transform 0.1s;
     outline: none;
 }
-button:focus, .chat-app__send-button:focus, .settings-modal__button:focus {
-    outline: 2.5px solid var(--primary-color) !important;
-    outline-offset: 2px;
-    box-shadow: 0 0 0 4px #2563eb33;
-}
-button:hover, .chat-app__send-button:hover, .settings-modal__button:hover {
-    filter: brightness(1.08);
-    transform: translateY(-2px) scale(1.03);
-    box-shadow: 0 4px 16px #2563eb22;
-}
 button:active, .chat-app__send-button:active, .settings-modal__button:active {
-    filter: brightness(0.97);
-    transform: scale(0.98);
-    box-shadow: 0 1px 4px #2563eb22;
+    box-shadow: 0 1px 4px #2563eb22, 0 0.5px 2px #fff4;
 }
 
 .chat-app__send-button, .settings-modal__button--primary {
@@ -1147,7 +1142,8 @@ button:active, .chat-app__send-button:active, .settings-modal__button:active {
 }
 
 .chat-app__message-input, .settings-modal__select, .settings-modal__checkbox, input[type="password"] {
-    border-radius: 8px;
+    box-shadow: 0 2px 8px #2563eb11, 0 1.5px 8px #fff8, 0 1.5px 8px #0001;
+    border-radius: 10px;
     border: 2px solid var(--border-color);
     background: var(--container-bg);
     color: var(--text-color);
@@ -1333,16 +1329,19 @@ body:not(.light-mode) .search-result-snippet {
   width: 2.2em;
   height: 2.2em;
   border-radius: 50%;
-  background: var(--avatar-bg, #e0e7ef);
+  background: linear-gradient(135deg, #e0e7ef 60%, #f8fafc 100%);
   margin-right: 0.7em;
   font-size: 1.3em;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  box-shadow: 0 2px 8px #2563eb22;
+  border: 2.5px solid #fff;
 }
 .user-message .avatar {
-  background: #cce5ff;
+  border: 2.5px solid #bbf7d0;
+  background: linear-gradient(135deg, #bbf7d0 60%, #d1fae5 100%);
 }
 .ai-message .avatar {
-  background: #e0e7ef;
+  border: 2.5px solid #e0e7ef;
+  background: linear-gradient(135deg, #e0e7ef 60%, #f8fafc 100%);
 }
 
 /* Thinking dots animation */
@@ -1553,8 +1552,9 @@ body:not(.light-mode) .scroll-to-bottom-btn:hover, body:not(.light-mode) .scroll
   transition: box-shadow 0.2s, background 0.2s;
 }
 .chat-app__message:hover {
-  box-shadow: 0 6px 24px #4f8cff33, 0 2px 8px #0002;
-  filter: brightness(1.04);
+  box-shadow: 0 8px 32px #4f8cff33, 0 2px 8px #0002;
+  filter: brightness(1.05);
+  transform: translateY(-2px) scale(1.01);
   background: #232b36;
 }
 
@@ -1816,4 +1816,10 @@ body:not(.light-mode) .chat-app__message.plan-message {
   - Mobile-first responsive tweaks
   - Consistent dark/light mode
   - Removed legacy/unused rules
-*/ 
+*/
+
+@keyframes bgGradientMove {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+} 
