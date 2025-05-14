@@ -783,7 +783,7 @@ const UIController = (function() {
     window.UIController.autoScrollToBottom = autoScrollToBottom;
 
     // Public API
-    return Utils.debugWrapAll({
+    const api = Utils.debugWrapAll({
         init,
         setupEventHandlers,
         addMessage,
@@ -811,4 +811,16 @@ const UIController = (function() {
         updatePlanningBar,
         hidePlanningBar,
     }, 'UI');
+
+    // Export to global scope before adding extra properties
+    if (typeof window !== 'undefined') {
+        window.UIController = api;
+    }
+
+    // Now add extra properties to UIController
+    window.UIController.showThinkingIndicator = showThinkingIndicator;
+    window.UIController.hideThinkingIndicator = hideThinkingIndicator;
+    window.UIController.autoScrollToBottom = autoScrollToBottom;
+
+    return api;
 })(); 
