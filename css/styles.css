@@ -138,28 +138,14 @@ body, html {
 
 /* -- Messages Component --------------------------------------------- */
 .chat-app__window {
-    background: linear-gradient(120deg, #f8fafc 0%, #e0e7ef 100%);
-    background-size: 200% 200%;
-    animation: bgGradientMove 12s ease-in-out infinite;
-    padding: var(--space-md);
-    padding-bottom: 80px;
+    background: #f8fafc;
+    padding: 24px 0 100px 0;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     align-items: center;
     min-height: 60vh;
-    scrollbar-width: thin;
-    scrollbar-color: var(--primary-color) var(--container-bg);
-}
-
-.chat-app__window::-webkit-scrollbar {
-    width: 8px;
-    background: var(--container-bg);
-}
-
-.chat-app__window::-webkit-scrollbar-thumb {
-    background: var(--primary-color);
-    border-radius: 8px;
+    width: 100%;
 }
 
 /* Message Block */
@@ -168,66 +154,162 @@ body, html {
     flex-direction: column;
     align-items: flex-end;
     position: relative;
-    padding: 0;
-    margin: 22px 0;
-    max-width: 80%;
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
-    border: 2px solid var(--border-color);
-    background: var(--container-bg);
-    animation: fadeInMessage 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    margin: 14px 0;
+    max-width: 680px;
+    width: 96%;
+    border-radius: 18px;
+    box-shadow: 0 2px 12px #0001;
+    border: 1.5px solid #e5e7eb;
+    background: #fff;
     transition: box-shadow 0.2s, background 0.2s, border-color 0.2s, transform 0.12s;
+    padding: 0;
 }
 
-/* User vs AI styling */
+/* User Message */
 .chat-app__message.user-message {
-    background: linear-gradient(135deg, var(--user-msg-bg) 80%, #bbf7d0 100%);
     align-self: flex-end;
-    text-align: left;
-    padding: 14px 18px 14px 18px;
+    background: #e6f9ed;
+    border: 1.5px solid #bbf7d0;
+    color: #065f46;
     border-radius: 18px 18px 4px 18px;
-    color: #052e16;
-    box-shadow: 0 2px 12px #22c55e33;
-    border: 2px solid #bbf7d0;
+    box-shadow: 0 2px 12px #22c55e22;
+    text-align: left;
+    padding: 16px 22px 12px 22px;
 }
 
-body:not(.light-mode) .chat-app__message.user-message {
-    background: linear-gradient(135deg, var(--user-msg-bg) 80%, #166534 100%);
-    color: #d1fae5;
-    border: 2px solid #166534;
-    box-shadow: 0 2px 12px #22c55e33;
-}
-
+/* AI Message */
 .chat-app__message.ai-message {
-    background: linear-gradient(135deg, #f5faff 80%, #e0e7ef 100%);
-    color: #1e293b !important;
-    border: 2px solid #e0e7ef;
-    box-shadow: 0 2px 12px #2563eb22;
-}
-body:not(.light-mode) .chat-app__message.ai-message {
-    background: linear-gradient(135deg, #23272e 80%, #2a3140 100%);
-    color: #eaf3ff !important;
-    border: 2px solid #23272e;
-    box-shadow: 0 2px 12px #2563eb22;
+    align-self: flex-start;
+    background: #f3f6fa;
+    border: 1.5px solid #b3d4fc;
+    color: #1e293b;
+    border-radius: 18px 18px 18px 4px;
+    box-shadow: 0 2px 12px #2563eb11;
+    text-align: left;
+    padding: 16px 22px 12px 22px;
 }
 
+/* Error Message */
+.chat-app__message.error-message {
+    background: #fff0f0;
+    border-left: 5px solid #ff4d4f;
+    color: #b71c1c;
+    border: 1.5px solid #ffb3b3;
+    box-shadow: 0 2px 12px #ff4d4f11;
+    font-weight: 600;
+    font-size: 1.08rem;
+    opacity: 1 !important;
+    border-radius: 18px;
+    padding: 16px 22px 12px 22px;
+}
+
+/* Plan Message */
+.chat-app__message.plan-message {
+    background: #fffbe6;
+    border-left: 5px solid #ffd700;
+    color: #665c00;
+    border: 1.5px solid #ffe066;
+    position: relative;
+    border-radius: 18px;
+    padding: 16px 22px 12px 22px;
+}
+
+/* Grouped Messages */
+.message-grouped {
+    margin-top: 2px !important;
+    margin-bottom: 2px !important;
+    border-top: 1px solid #e5e7eb;
+    border-radius: 8px 8px 18px 18px !important;
+    box-shadow: none;
+    background: #f8fafc;
+}
+
+/* Message Content */
 .chat-app__message-content {
     color: inherit !important;
     opacity: 1 !important;
-    text-shadow: 0 1px 2px #fff8, 0 0.5px 1px #0001;
-    flex: 1;
-    min-width: 0;
-    width: 100%;
-    white-space: pre-wrap;
+    font-size: 1.08rem;
+    line-height: 1.7;
+    padding: 0;
+    margin: 0;
     word-break: break-word;
-    font-size: 1.05rem;
-    line-height: 1.6;
-    padding-bottom: 1.2em; /* Add space for timestamp below */
+    white-space: pre-wrap;
+    background: none;
+}
+
+/* Timestamp */
+.chat-app__timestamp {
+    font-size: 0.78rem;
+    color: #b0b0b0;
+    display: block;
+    text-align: right;
+    opacity: 0.7;
+    margin-top: 0.2em;
+    margin-bottom: 0.1em;
+    align-self: flex-end;
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+/* Hover/Active States */
+.chat-app__message:hover {
+    box-shadow: 0 8px 32px #2563eb22, 0 2px 8px #0002;
+    filter: brightness(1.03);
+    transform: translateY(-2px) scale(1.01);
+    background: #f0f6ff;
+}
+
+/* Focus State for Accessibility */
+.chat-app__message:focus-within {
+    outline: 2.5px solid #2563eb;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px #2563eb33;
+    z-index: 10;
+}
+
+/* --- Dark Mode --- */
+body:not(.light-mode) .chat-app__window {
+    background: #20232a !important;
+}
+body:not(.light-mode) .chat-app__message {
+    background: #23272e;
+    border: 1.5px solid #2c313a;
+    color: #eaf3ff;
+}
+body:not(.light-mode) .chat-app__message.user-message {
+    background: #1e2d1e;
+    border: 1.5px solid #4caf80;
+    color: #d1fae5;
+}
+body:not(.light-mode) .chat-app__message.ai-message {
+    background: #23272e;
+    border: 1.5px solid #4f8cff;
+    color: #eaf3ff;
+}
+body:not(.light-mode) .chat-app__message.error-message {
+    background: #2e1a1a;
+    color: #ffb3b3;
+    border: 1.5px solid #ff4d4f;
+}
+body:not(.light-mode) .chat-app__message.plan-message {
+    background: #2c2a1a;
+    color: #ffe066;
+    border: 1.5px solid #ffd700;
+}
+body:not(.light-mode) .message-grouped {
+    background: #23272e;
+    border-top: 1px solid #2c313a;
 }
 body:not(.light-mode) .chat-app__message-content {
     color: #eaf3ff !important;
-    text-shadow: 0 1px 2px #23272e, 0 0.5px 1px #0004;
 }
+body:not(.light-mode) .chat-app__timestamp {
+    color: #b0b0b0;
+}
+
+/* --- End Modern Chat Message Styles --- */
 
 /* -- Controls Component ---------------------------------------------- */
 .chat-app__controls {
