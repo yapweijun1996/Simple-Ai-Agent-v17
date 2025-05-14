@@ -1326,29 +1326,46 @@ If you understand, follow these instructions for every relevant question. Do NOT
      */
     async function runAgentWorkflow(userQuery) {
         // 1. Planning phase
-        const plan = await generatePlan(userQuery);
-        if (!Array.isArray(plan) || plan.length === 0) {
-            UIController.addMessage('ai', 'I could not generate a step-by-step plan for your question.\n\nCould you clarify what you mean by "' + userQuery + '"? For example, is it a product, a math expression, or something else?');
-            // Optionally, try a default web search if the query is not empty
-            if (userQuery && userQuery.trim().length > 0) {
-                UIController.addMessage('ai', 'Would you like me to search the web for "' + userQuery + '"?');
-                // Optionally, auto-trigger a web search tool call here if desired:
-                // await processToolCall({ tool: 'web_search', arguments: { query: userQuery } });
-            }
-            return;
+        // Let the agent generate a plan as raw text (numbered list, JSON, etc.)
+        const planText = await callLLM(
+            `You are an AI agent. Given the user question: "${userQuery}", output a numbered list of actionable steps to answer it.\nIf a tool is needed, use only the allowed tools. If no tool is needed, just say so.`,
+            undefined,
+            AGENT_SYSTEM_PROMPT
+        );
+        logAgentEvent('PlanPrompt', planText);
+        // Split plan into steps (lines or objects)
+        let planSteps = planText.split('\n').map(l => l.trim()).filter(Boolean);
+        // If the plan is a single JSON object/array, treat as one step
+        if (planSteps.length === 1 && planSteps[0].startsWith('{')) {
+            planSteps = [planText];
         }
-        displayPlanningBar(plan);
+        displayPlanningBar(planSteps);
 
-        // 2. Execution phase
+        // 2. Execution phase: For each step, let the agent decide what to do
         let context = { userQuery };
         let stepResults = [];
-        for (let i = 0; i < plan.length; i++) {
+        for (let i = 0; i < planSteps.length; i++) {
             markStepInProgress(i);
-            const result = await executePlanStep(plan[i], context);
+            // Always prompt the agent to interpret the step
+            const stepText = typeof planSteps[i] === 'string' ? planSteps[i] : planSteps[i].step || JSON.stringify(planSteps[i]);
+            const stepPrompt = `Given this step: "${stepText}", do you need to call a tool? If so, output ONLY the tool call JSON. If not, output NO_TOOL_NEEDED.`;
+            logAgentEvent('StepPrompt', { step: stepText, stepPrompt });
+            const response = await callLLM(stepPrompt, context, AGENT_SYSTEM_PROMPT);
+            logAgentEvent('LLMResponse', { step: stepText, response });
+            let result = {};
+            const toolCall = extractToolCall(response);
+            if (toolCall) {
+                result.toolCall = toolCall;
+                result.toolResult = await processToolCall(toolCall);
+                result.summary = `Tool call executed: ${toolCall.tool}`;
+            } else if (response && response.trim() === 'NO_TOOL_NEEDED') {
+                result.summary = 'NO_TOOL_NEEDED';
+            } else {
+                result.summary = `Unrecognized agent output: ${response}`;
+            }
             stepResults.push(result);
-            displayStepSummary(i, result.summary || result.error);
+            displayStepSummary(i, result.summary);
             markStepDone(i);
-            // Optionally, update context with tool results for next steps
             if (result.toolResult) context[`step${i}_result`] = result.toolResult;
         }
 
