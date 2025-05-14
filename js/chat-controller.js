@@ -189,6 +189,10 @@ const ChatController = (function() {
         if (obj.action && obj.url) {
             return { tool: obj.action, arguments: { url: obj.url } };
         }
+        if (obj.action && obj.parameters && typeof obj.parameters === 'object') {
+            // Handle { action: 'web_search', parameters: { query: 'x' } }
+            return { tool: obj.action, arguments: obj.parameters };
+        }
         // If we reach here, log and show error
         Utils.debugLog('[extractToolCall] Parsed object did not match expected tool call schema:', obj);
         UIController.addMessage('ai', `Error: Parsed tool call did not match expected schema.\nObject: ${Utils.pretty(obj)}`);
