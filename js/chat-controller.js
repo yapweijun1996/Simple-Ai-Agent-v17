@@ -497,72 +497,80 @@ If you understand, follow these instructions for every relevant question. Do NOT
     // Helper: Execute a single plan step (reason, tool call, summary)
     async function executeSinglePlanStep(model, stepText, idx) {
         updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS);
-        // Generate reasoning and/or take action for this step
-        const prompt = `Step ${idx + 1}: ${stepText}\n\nPlease reason step-by-step and take any necessary tool actions before marking this step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.`;
-        const currentSettings = SettingsController.getSettings();
-        let reply = '';
-        if (model.startsWith('gpt')) {
-            const res = await ApiService.sendOpenAIRequest(model, [
-                { role: 'system', content: 'You are an AI assistant following a multi-step plan. For each step, reason step-by-step and take any necessary tool actions before marking the step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.' },
-                { role: 'user', content: prompt }
-            ]);
-            reply = res.choices[0].message.content;
-        } else if (model.startsWith('gemini') || model.startsWith('gemma')) {
-            const session = ApiService.createGeminiSession(model);
-            const chatHistory = [
-                { role: 'system', content: 'You are an AI assistant following a multi-step plan. For each step, reason step-by-step and take any necessary tool actions before marking the step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.' },
-                { role: 'user', content: prompt }
-            ];
-            const result = await session.sendMessage(prompt, chatHistory);
-            const candidate = result.candidates[0];
-            if (candidate.content.parts) {
-                reply = candidate.content.parts.map(p => p.text).join(' ');
-            } else if (candidate.content.text) {
-                reply = candidate.content.text;
-            }
-        }
-        // Try to extract and execute a tool call from the reply
-        const toolCall = extractToolCall(reply);
-        if (toolCall && toolCall.tool && toolCall.arguments) {
-            Utils.debugLog('[Plan] Tool call detected in step:', toolCall);
-            await processToolCall(toolCall);
-            // Optionally, after tool execution, ask for a summary/answer for the step
-            let followupReply = '';
-            const followupPrompt = `Step ${idx + 1}: ${stepText}\n\nThe tool call has been executed. Please summarize what was learned and provide the next reasoning or answer for this step.`;
+        try {
+            // Generate reasoning and/or take action for this step
+            const prompt = `Step ${idx + 1}: ${stepText}\n\nPlease reason step-by-step and take any necessary tool actions before marking this step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.`;
+            const currentSettings = SettingsController.getSettings();
+            let reply = '';
             if (model.startsWith('gpt')) {
                 const res = await ApiService.sendOpenAIRequest(model, [
-                    { role: 'system', content: 'You are an AI assistant following a multi-step plan. Summarize what was learned from the tool call and provide the next reasoning or answer.' },
-                    { role: 'user', content: followupPrompt }
+                    { role: 'system', content: 'You are an AI assistant following a multi-step plan. For each step, reason step-by-step and take any necessary tool actions before marking the step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.' },
+                    { role: 'user', content: prompt }
                 ]);
-                followupReply = res.choices[0].message.content;
+                reply = res.choices[0].message.content;
             } else if (model.startsWith('gemini') || model.startsWith('gemma')) {
                 const session = ApiService.createGeminiSession(model);
                 const chatHistory = [
-                    { role: 'system', content: 'You are an AI assistant following a multi-step plan. Summarize what was learned from the tool call and provide the next reasoning or answer.' },
-                    { role: 'user', content: followupPrompt }
+                    { role: 'system', content: 'You are an AI assistant following a multi-step plan. For each step, reason step-by-step and take any necessary tool actions before marking the step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.' },
+                    { role: 'user', content: prompt }
                 ];
-                const result = await session.sendMessage(followupPrompt, chatHistory);
+                const result = await session.sendMessage(prompt, chatHistory);
                 const candidate = result.candidates[0];
                 if (candidate.content.parts) {
-                    followupReply = candidate.content.parts.map(p => p.text).join(' ');
+                    reply = candidate.content.parts.map(p => p.text).join(' ');
                 } else if (candidate.content.text) {
-                    followupReply = candidate.content.text;
+                    reply = candidate.content.text;
                 }
             }
-            const processed = parseCoTResponse(followupReply);
-            if (processed.thinking) {
-                updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
+            // Try to extract and execute a tool call from the reply
+            const toolCall = extractToolCall(reply);
+            if (toolCall && toolCall.tool && toolCall.arguments) {
+                Utils.debugLog('[Plan] Tool call detected in step:', toolCall);
+                await processToolCall(toolCall);
+                // Optionally, after tool execution, ask for a summary/answer for the step
+                let followupReply = '';
+                const followupPrompt = `Step ${idx + 1}: ${stepText}\n\nThe tool call has been executed. Please summarize what was learned and provide the next reasoning or answer for this step.`;
+                if (model.startsWith('gpt')) {
+                    const res = await ApiService.sendOpenAIRequest(model, [
+                        { role: 'system', content: 'You are an AI assistant following a multi-step plan. Summarize what was learned from the tool call and provide the next reasoning or answer.' },
+                        { role: 'user', content: followupPrompt }
+                    ]);
+                    followupReply = res.choices[0].message.content;
+                } else if (model.startsWith('gemini') || model.startsWith('gemma')) {
+                    const session = ApiService.createGeminiSession(model);
+                    const chatHistory = [
+                        { role: 'system', content: 'You are an AI assistant following a multi-step plan. Summarize what was learned from the tool call and provide the next reasoning or answer.' },
+                        { role: 'user', content: followupPrompt }
+                    ];
+                    const result = await session.sendMessage(followupPrompt, chatHistory);
+                    const candidate = result.candidates[0];
+                    if (candidate.content.parts) {
+                        followupReply = candidate.content.parts.map(p => p.text).join(' ');
+                    } else if (candidate.content.text) {
+                        followupReply = candidate.content.text;
+                    }
+                }
+                const processed = parseCoTResponse(followupReply);
+                if (processed.thinking) {
+                    updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
+                }
+            } else {
+                // If no tool call, just parse reasoning/answer as before
+                const processed = parseCoTResponse(reply);
+                if (processed.thinking) {
+                    updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
+                }
             }
-        } else {
-            // If no tool call, just parse reasoning/answer as before
-            const processed = parseCoTResponse(reply);
-            if (processed.thinking) {
-                updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
-            }
+            // Mark step as done
+            updatePlanStepStatus(idx, PLAN_STATUS.DONE);
+            Utils.debugLog(`[Plan] Completed step ${idx + 1}`);
+        } catch (error) {
+            // Mark step as error and update UI
+            updatePlanStepStatus(idx, PLAN_STATUS.ERROR, '', error.message);
+            UIController.addMessage('ai', `Error in step ${idx + 1}: ${error.message}`);
+            UIController.showStatus(`Plan failed at step ${idx + 1}: ${error.message}`);
+            Utils.debugLog(`[Plan] Error in step ${idx + 1}:`, error);
         }
-        // Mark step as done
-        updatePlanStepStatus(idx, PLAN_STATUS.DONE);
-        Utils.debugLog(`[Plan] Completed step ${idx + 1}`);
     }
 
     // Helper: Extract plan from text and set plan state
