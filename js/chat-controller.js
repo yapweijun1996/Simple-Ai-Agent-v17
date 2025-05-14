@@ -505,6 +505,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
     // Helper: Execute a single plan step (reason, tool call, summary)
     async function executeSinglePlanStep(model, stepText, idx) {
         updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS);
+        let stepCompleted = false;
         try {
             // Generate reasoning and/or take action for this step
             const prompt = `Step ${idx + 1}: ${stepText}\n\nPlease reason step-by-step and take any necessary tool actions before marking this step as done. If a tool is needed, output ONLY a tool call JSON object as specified in the system instructions.`;
@@ -562,11 +563,16 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 if (processed.thinking) {
                     updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
                 }
+                stepCompleted = true;
             } else {
                 // If no tool call, just parse reasoning/answer as before
                 const processed = Utils.parseCoTResponse(reply);
                 if (processed.thinking) {
                     updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
+                }
+                // Heuristic: if reply contains 'Answer:' or 'NO_TOOL_NEEDED', consider step complete
+                if (/Answer:|NO_TOOL_NEEDED/i.test(reply)) {
+                    stepCompleted = true;
                 }
             }
             // Mark step as done
@@ -578,6 +584,14 @@ If you understand, follow these instructions for every relevant question. Do NOT
             UIController.addMessage('ai', `Error in step ${idx + 1}: ${error.message}`);
             UIController.showStatus(`Plan failed at step ${idx + 1}: ${error.message}`);
             Utils.debugLog(`[Plan] Error in step ${idx + 1}:`, error);
+            stepCompleted = false;
+        } finally {
+            // Fallback: if stepCompleted is false, log and force advance to next step
+            if (!stepCompleted) {
+                Utils.debugLog(`[Plan] Step ${idx + 1} did not trigger completion heuristics. Forcing advance to next step.`);
+                // Mark as done if not already
+                updatePlanStepStatus(idx, PLAN_STATUS.DONE);
+            }
         }
     }
 
