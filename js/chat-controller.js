@@ -1283,14 +1283,54 @@ If you understand, follow these instructions for every relevant question. Do NOT
             /^\*\s+/.test(line.trim()) ||
             /^(First|Next|Then|Finally)[,:\s]/i.test(line.trim())
         );
-        return planLines.map(line =>
-            line.replace(/^\d+\.\s+/, '')
-                .replace(/^Step\s*\d+[:.]\s*/i, '')
-                .replace(/^-+\s*/, '')
-                .replace(/^\*+\s*/, '')
-                .replace(/^(First|Next|Then|Finally)[,:\s]+/i, '')
-                .trim()
-        );
+        if (planLines.length > 0) {
+            return planLines.map(line =>
+                line.replace(/^\d+\.\s+/, '')
+                    .replace(/^Step\s*\d+[:.]\s*/i, '')
+                    .replace(/^-+\s*/, '')
+                    .replace(/^\*+\s*/, '')
+                    .replace(/^(First|Next|Then|Finally)[,:\s]+/i, '')
+                    .trim()
+            );
+        }
+        // Try to parse as JSON if no plan lines found
+        let json;
+        try {
+            json = JSON.parse(text);
+        } catch (err) {
+            // Not valid JSON, return []
+            if (window && window.console) console.log('[PlanExtract] Not valid JSON:', err);
+            return [];
+        }
+        if (Array.isArray(json)) {
+            // Array of steps (objects)
+            if (window && window.console) console.log('[PlanExtract] JSON array detected:', json);
+            return json.map((step, idx) => {
+                if (typeof step === 'string') return step;
+                if (step.action) {
+                    let desc = `Action: ${step.action}`;
+                    if (step.parameters) desc += ` (${JSON.stringify(step.parameters)})`;
+                    return desc;
+                }
+                if (step.step && step.action) {
+                    let desc = `Step ${step.step}: ${step.action}`;
+                    if (step.parameters) desc += ` (${JSON.stringify(step.parameters)})`;
+                    return desc;
+                }
+                return JSON.stringify(step);
+            });
+        } else if (typeof json === 'object' && json !== null) {
+            // Single tool_call or similar
+            if (window && window.console) console.log('[PlanExtract] JSON object detected:', json);
+            if (json.tool_call && (json.tool_call.tool || json.tool_call.tool_name)) {
+                let tool = json.tool_call.tool || json.tool_call.tool_name;
+                let args = json.tool_call.arguments || json.tool_call.input || {};
+                return [`Call tool: ${tool} (${JSON.stringify(args)})`];
+            }
+            // Fallback: stringify
+            return [JSON.stringify(json)];
+        }
+        return [];
     }
 
     // Backward compatibility for processToolCall and other logic
@@ -1349,7 +1389,19 @@ Given the user question: "${userQuery}", output a numbered list of actionable st
         logAgentEvent('PlanPrompt', prompt);
         const planText = await callLLM(prompt, undefined, AGENT_SYSTEM_PROMPT);
         logAgentEvent('PlanGenerated', planText);
-        const plan = extractPlanFromText(planText);
+
+        // === Agent B: Plan Verifier/Adapter ===
+        const verifyPrompt = `Here is a plan generated for the question: "${userQuery}"\n\nPlan:\n${planText}\n\nIs this plan actionable and clear? If not, please rewrite it as a clear, step-by-step numbered list. If yes, return the plan as a numbered list. Only output the improved plan, nothing else.`;
+        logAgentEvent('PlanVerifyPrompt', verifyPrompt);
+        const verifiedPlanText = await callLLM(verifyPrompt, undefined, AGENT_SYSTEM_PROMPT);
+        logAgentEvent('PlanVerified', verifiedPlanText);
+
+        // Use the existing extraction logic, but now only as a fallback
+        let plan = extractPlanFromText(verifiedPlanText);
+        if ((!plan || plan.length === 0) && verifiedPlanText.trim()) {
+            // Fallback: treat each line as a step
+            plan = verifiedPlanText.split('\n').map(l => l.trim()).filter(Boolean);
+        }
         agentStats.totalSteps = plan.length;
         return plan;
     }
