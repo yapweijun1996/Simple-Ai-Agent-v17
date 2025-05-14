@@ -343,6 +343,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
             UIController.showError(userMessage);
             UIController.addMessage('ai', userMessage);
             UIController.showStatus(userMessage, getAgentDetails());
+            state.toolWorkflowActive = false;
             console.error('Error sending message:', error);
         } finally {
             Utils.updateTokenDisplay(state.totalTokens);
@@ -628,6 +629,10 @@ If you understand, follow these instructions for every relevant question. Do NOT
         if (toolCall && toolCall.tool && toolCall.arguments) {
             return [`Call tool: ${toolCall.tool}`];
         }
+        // If text is empty or unparseable, provide user feedback
+        if (!text || !text.trim()) {
+            UIController.addMessage('ai', 'Error: No plan or tool call detected in AI response. Please try rephrasing your question.');
+        }
         return [];
     }
 
@@ -806,7 +811,9 @@ If you understand, follow these instructions for every relevant question. Do NOT
 
     /**
      * Processes a tool call, including loop protection, logging, handler execution, and workflow continuation.
-     * @param {Object} call - The tool call object
+     * - Halts workflow and notifies user if a tool call loop is detected.
+     * - Handles tool handler errors and always updates chat history.
+     * - Provides robust error handling and user feedback.
      */
     async function processToolCall(call) {
         Utils.debugLog('[ToolCall] Received:', Utils.pretty(call));
@@ -816,34 +823,54 @@ If you understand, follow these instructions for every relevant question. Do NOT
         if (isToolCallLoop(tool, args)) {
             Utils.debugLog('[ToolCall] Loop detected, aborting.');
             UIController.addMessage('ai', `Error: Tool call loop detected. The same tool call has been made more than ${state.MAX_TOOL_CALL_REPEAT} times in a row. Stopping to prevent infinite loop.`);
+            state.toolWorkflowActive = false;
             return;
         }
         // Log tool call
         logToolCall(tool, args);
         // Execute tool handler
-        const handlerSuccess = await executeToolHandler(tool, args);
-        if (!handlerSuccess) return;
-        // Only continue reasoning if the last AI reply was NOT a tool call
+        let handlerSuccess = false;
+        try {
+            handlerSuccess = await executeToolHandler(tool, args);
+        } catch (err) {
+            UIController.addMessage('ai', `Error: Exception in tool handler for ${tool}: ${err && err.message ? err.message : err}`);
+            UIController.showStatus('Tool handler exception. See console for details.', getAgentDetails());
+            state.toolWorkflowActive = false;
+            return;
+        }
+        if (!handlerSuccess) {
+            UIController.addMessage('ai', `Error: Tool handler for ${tool} failed. Stopping workflow.`);
+            state.toolWorkflowActive = false;
+            return;
+        }
+        // Always update chat history with tool result if available
+        // (Assume tool handler pushes to chat history, else add a generic entry)
         if (!skipContinue) {
-            const lastEntry = state.chatHistory[state.chatHistory.length - 1];
-            let isToolCall = false;
-            if (lastEntry && typeof lastEntry.content === 'string') {
-                try {
-                    const parsed = JSON.parse(lastEntry.content);
-                    if (parsed.tool && parsed.arguments) {
-                        isToolCall = true;
-                    }
-                } catch {}
-            }
-            if (!isToolCall) {
-                const selectedModel = SettingsController.getSettings().selectedModel;
-                if (selectedModel.startsWith('gpt')) {
-                    await handleOpenAIMessage(selectedModel, '');
-                } else {
-                    await handleGeminiMessage(selectedModel, '');
+            try {
+                const lastEntry = state.chatHistory[state.chatHistory.length - 1];
+                let isToolCall = false;
+                if (lastEntry && typeof lastEntry.content === 'string') {
+                    try {
+                        const parsed = JSON.parse(lastEntry.content);
+                        if (parsed.tool && parsed.arguments) {
+                            isToolCall = true;
+                        }
+                    } catch {}
                 }
-            } else {
-                UIController.addMessage('ai', 'Warning: AI outputted another tool call without reasoning. Stopping to prevent infinite loop.');
+                if (!isToolCall) {
+                    const selectedModel = SettingsController.getSettings().selectedModel;
+                    if (selectedModel.startsWith('gpt')) {
+                        await handleOpenAIMessage(selectedModel, '');
+                    } else {
+                        await handleGeminiMessage(selectedModel, '');
+                    }
+                } else {
+                    UIController.addMessage('ai', 'Warning: AI outputted another tool call without reasoning. Stopping to prevent infinite loop.');
+                    state.toolWorkflowActive = false;
+                }
+            } catch (err) {
+                UIController.addMessage('ai', `Error: Exception during post-tool-call reasoning: ${err && err.message ? err.message : err}`);
+                state.toolWorkflowActive = false;
             }
         }
     }
