@@ -201,7 +201,23 @@ const ChatController = (function() {
         }
         // If we reach here, log and show error
         Utils.debugLog('[extractToolCall] Parsed object did not match expected tool call schema:', obj);
-        UIController.addMessage('ai', `Error: Parsed tool call did not match expected schema.\nObject: ${Utils.pretty(obj)}`);
+        // Enhanced debug: log present keys, expected keys, and suggestion
+        const presentKeys = Object.keys(obj).join(', ');
+        const expectedSchemas = [
+            '{ tool, arguments }',
+            '{ tool_call: { tool/tool_name/action, arguments/query/url/queries } }',
+            '{ tool_name, parameters }',
+            '{ action, parameters }'
+        ];
+        const suggestion =
+            'Suggestion: Ensure the agent outputs tool calls in the format {"tool": "tool_name", "arguments": { ... }}. ' +
+            'If using Gemini/Gemma, instruct the agent to use "tool" and "arguments" keys.';
+        Utils.debugLog('[extractToolCall] Present keys:', presentKeys);
+        Utils.debugLog('[extractToolCall] Expected schemas:', expectedSchemas);
+        Utils.debugLog('[extractToolCall] ' + suggestion);
+        UIController.addMessage('ai',
+            `Error: Parsed tool call did not match expected schema.\nObject: ${Utils.pretty(obj)}\nPresent keys: ${presentKeys}\nExpected schemas: ${expectedSchemas.join(' | ')}\n${suggestion}`
+        );
         return null;
     }
 
@@ -1353,11 +1369,23 @@ If you understand, follow these instructions for every relevant question. Do NOT
             const response = await callLLM(stepPrompt, context, AGENT_SYSTEM_PROMPT);
             logAgentEvent('LLMResponse', { step: stepText, response });
             let result = {};
-            const toolCall = extractToolCall(response);
-            if (toolCall) {
-                result.toolCall = toolCall;
-                result.toolResult = await processToolCall(toolCall);
-                result.summary = `Tool call executed: ${toolCall.tool}`;
+            let extractionResult = null;
+            let extractionError = null;
+            try {
+                extractionResult = extractToolCall(response);
+            } catch (err) {
+                extractionError = err;
+            }
+            if (SettingsController.getSettings().debug) {
+                // Show debug info in UI
+                UIController.addMessage('ai',
+                    `DEBUG INFO:\nStep: ${stepText}\nPrompt: ${stepPrompt}\nRaw response: ${response}\nExtraction result: ${Utils.pretty(extractionResult)}\nExtraction error: ${extractionError ? extractionError.message : 'None'}`
+                );
+            }
+            if (extractionResult) {
+                result.toolCall = extractionResult;
+                result.toolResult = await processToolCall(extractionResult);
+                result.summary = `Tool call executed: ${extractionResult.tool}`;
             } else if (response && response.trim() === 'NO_TOOL_NEEDED') {
                 result.summary = 'NO_TOOL_NEEDED';
             } else {
