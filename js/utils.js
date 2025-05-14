@@ -376,6 +376,54 @@ const Utils = (function() {
         return wrapped;
     }
 
+    /**
+     * Parses a Chain-of-Thought (CoT) response string to extract reasoning and answer.
+     * @param {string} text - The response text to parse
+     * @param {boolean} [allowPartial=false] - If true, allow partial extraction
+     * @returns {{thinking: string, answer: string}}
+     */
+    function parseCoTResponse(text, allowPartial = false) {
+        if (!text || typeof text !== 'string') return { thinking: '', answer: '' };
+        // Try to extract reasoning (thinking) and answer using common patterns
+        // 1. Look for explicit CoT markers
+        let thinking = '', answer = '';
+        // Pattern 1: "Step-by-step reasoning:" or "Chain of Thought:"
+        const cotPattern = /(?:Step[- ]by[- ]step reasoning|Chain of Thought|Reasoning|Thought process)[:\-\n]+([\s\S]+?)(?:\n+|$)(?:Final Answer|Answer|Conclusion)[:\-\n]+([\s\S]+)/i;
+        const match = text.match(cotPattern);
+        if (match) {
+            thinking = match[1].trim();
+            answer = match[2].trim();
+            return { thinking, answer };
+        }
+        // Pattern 2: Numbered steps followed by a final answer
+        const stepsPattern = /((?:\d+\..*\n?)+)(?:Final Answer|Answer|Conclusion)[:\-\n]+([\s\S]+)/i;
+        const match2 = text.match(stepsPattern);
+        if (match2) {
+            thinking = match2[1].trim();
+            answer = match2[2].trim();
+            return { thinking, answer };
+        }
+        // Pattern 3: Just a final answer
+        const answerPattern = /(?:Final Answer|Answer|Conclusion)[:\-\n]+([\s\S]+)/i;
+        const match3 = text.match(answerPattern);
+        if (match3) {
+            answer = match3[1].trim();
+            if (allowPartial) return { thinking: '', answer };
+        }
+        // Pattern 4: Only steps, no explicit answer
+        const stepsOnlyPattern = /((?:\d+\..*\n?)+)/;
+        const match4 = text.match(stepsOnlyPattern);
+        if (match4) {
+            thinking = match4[1].trim();
+            if (allowPartial) return { thinking, answer: '' };
+        }
+        // Fallback: return the whole text as answer if nothing else
+        if (!thinking && !answer && allowPartial) {
+            return { thinking: '', answer: text.trim() };
+        }
+        return { thinking, answer };
+    }
+
     // Public API
     return {
         decrypt,
@@ -399,6 +447,7 @@ const Utils = (function() {
         pretty,
         sanitizeJsonString,
         debugWrap,
-        debugWrapAll
+        debugWrapAll,
+        parseCoTResponse
     };
 })(); 

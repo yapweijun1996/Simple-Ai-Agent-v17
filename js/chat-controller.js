@@ -340,7 +340,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 (chunk, fullText) => {
                     streamedResponse = fullText;
                     if (state.settings.enableCoT) {
-                        const processed = parseCoTResponse(fullText, true);
+                        const processed = Utils.parseCoTResponse(fullText, true);
                         if (state.isThinking && fullText.includes('Answer:')) {
                             state.isThinking = false;
                             // Mark current step as done and advance if in-progress
@@ -379,7 +379,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 UIController.addMessage('ai', 'Error: Tool call detected in agent response but could not be parsed. Please check the tool call format or delimiters.');
             }
             if (state.settings.enableCoT) {
-                const processed = parseCoTResponse(fullReply);
+                const processed = Utils.parseCoTResponse(fullReply);
                 if (processed.thinking) {
                     Utils.debugLog('AI Thinking:', processed.thinking);
                 }
@@ -437,7 +437,7 @@ If you understand, follow these instructions for every relevant question. Do NOT
                 UIController.addMessage('ai', 'Error: Tool call detected in agent response but could not be parsed. Please check the tool call format or delimiters.');
             }
             if (state.settings.enableCoT) {
-                const processed = parseCoTResponse(reply);
+                const processed = Utils.parseCoTResponse(reply);
                 if (processed.thinking) {
                     Utils.debugLog('AI Thinking:', processed.thinking);
                 }
@@ -549,13 +549,13 @@ If you understand, follow these instructions for every relevant question. Do NOT
                         followupReply = candidate.content.text;
                     }
                 }
-                const processed = parseCoTResponse(followupReply);
+                const processed = Utils.parseCoTResponse(followupReply);
                 if (processed.thinking) {
                     updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
                 }
             } else {
                 // If no tool call, just parse reasoning/answer as before
-                const processed = parseCoTResponse(reply);
+                const processed = Utils.parseCoTResponse(reply);
                 if (processed.thinking) {
                     updatePlanStepStatus(idx, PLAN_STATUS.IN_PROGRESS, '', processed.thinking);
                 }
