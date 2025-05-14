@@ -115,20 +115,18 @@ const SettingsController = (function() {
         let modal = settingsModal || document.getElementById('settings-modal');
         if (modal) {
             try {
-                modal.style.display = 'none';
+                // Always remove the modal from the DOM
+                if (modal.parentNode) {
+                    modal.parentNode.removeChild(modal);
+                    if (window && window.console) console.log('[Settings] Modal removed from DOM');
+                }
                 // Restore focus to settings button
                 if (showSettingsModal.lastFocused) {
                     showSettingsModal.lastFocused.focus();
                 }
-                if (window && window.console) console.log('[Settings] Modal hidden');
-                // Forcibly null the reference after hiding
                 settingsModal = null;
             } catch (err) {
-                // Fallback: forcibly remove modal from DOM
-                if (modal.parentNode) {
-                    modal.parentNode.removeChild(modal);
-                    if (window && window.console) console.log('[Settings] Modal forcibly removed from DOM');
-                }
+                if (window && window.console) console.log('[Settings] Error removing modal:', err);
                 settingsModal = null;
             }
         } else {
