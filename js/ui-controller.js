@@ -158,9 +158,11 @@ const UIController = (function() {
         // Add fade-in animation
         messageElement.classList.add('fade-in');
 
-        // Add plan/narration class if type is 'plan'
+        // Add plan/narration/error class if type is set
         if (type === 'plan') {
             messageElement.classList.add('plan-message');
+        } else if (type === 'error-message') {
+            messageElement.classList.add('error-message');
         }
 
         // Group consecutive messages from the same sender
@@ -513,6 +515,8 @@ const UIController = (function() {
      */
     function showError(message) {
         setStatusBar(document.getElementById('status-bar'), { type: 'error', message, autoDismiss: false });
+        // Also add error to chat window as a visible message
+        addMessage('ai', message, 'error-message');
     }
 
     // Helper: Set thinking indicator
