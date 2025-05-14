@@ -163,6 +163,10 @@ const ChatController = (function() {
             return { tool, arguments: args };
         }
         // [ADDED] Handle Gemini tool_choice schema
+        if (obj.tool_call && obj.tool_call.tool_name && obj.tool_call.query) {
+            // Normalize { tool_call: { tool_name, query } } to { tool, arguments }
+            return { tool: obj.tool_call.tool_name, arguments: { query: obj.tool_call.query } };
+        }
         if (obj.tool_choice && obj.tool_choice.type) {
             const { type, ...rest } = obj.tool_choice;
             return { tool: type, arguments: { ...rest } };
