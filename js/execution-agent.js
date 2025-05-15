@@ -23,6 +23,7 @@ class ExecutionAgent {
   async executePlan(plan, narrateFn = null) {
     const results = [];
     let webSearchResults = null;
+    let collectedSnippets = [];
     let i = 0;
     while (i < plan.length) {
       const step = plan[i];
@@ -30,7 +31,6 @@ class ExecutionAgent {
       // Fill in read_url step URLs dynamically from web_search results
       if (step.tool === 'read_url' && step.arguments.url === '<<TO_BE_FILLED_BY_EXECUTOR>>') {
         if (Array.isArray(webSearchResults)) {
-          // Find the index of this read_url step among all read_url steps
           const readUrlSteps = plan.filter(s => s.tool === 'read_url');
           const thisReadUrlIndex = readUrlSteps.indexOf(step);
           if (webSearchResults[thisReadUrlIndex]) {
@@ -72,89 +72,158 @@ class ExecutionAgent {
       // Execute the tool
       try {
         if (this.debug) console.log('[ExecutionAgent-DEBUG] Calling tool:', step.tool, 'with args:', step.arguments);
-        const result = await toolFn(step.arguments);
-        results.push({ step: step.step, result });
-        if (this.debug) console.log('[ExecutionAgent-DEBUG] Result for step', step.step, ':', result);
-        if (typeof narrateFn === 'function') {
-          await narrateFn(`Result: ${JSON.stringify(result)}`);
-        }
-        // Store web_search results for dynamic URL filling
-        if (step.tool === 'web_search' && Array.isArray(result)) {
-          webSearchResults = result;
-          // --- AI-driven selection of which results to read ---
-          if (webSearchResults.length > 0) {
-            // Build prompt as in suggestResultsToRead
-            const prompt = `Given these search results for the query: "${step.arguments.query}", which results (by number) are most relevant to read in detail?\n\n${webSearchResults.map((r, idx) => `${idx+1}. ${r.title} - ${r.snippet}`).join('\n')}\n\nReply with a comma-separated list of result numbers.`;
+        // --- Deep reading for read_url steps ---
+        if (step.tool === 'read_url') {
+          let snippet = '';
+          let url = step.arguments.url;
+          let start = 0;
+          let chunkSize = 2000;
+          let maxChunks = 5;
+          let totalLength = 0;
+          let shouldContinue = true;
+          let chunkCount = 0;
+          while (shouldContinue && chunkCount < maxChunks && totalLength < 10000) {
+            const result = await toolFn({ url, start, length: chunkSize });
+            if (!result || !result.snippet) break;
+            snippet += result.snippet;
+            totalLength += result.snippet.length;
+            // Ask LLM if more is needed
             let aiReply = '';
-            let selectedIndices = [];
             try {
-              // Use OpenAI or Gemini as in chat-controller.js
+              const prompt = `Given the following snippet from ${url}, do you need more content to answer the user's question? Please reply with "YES" or "NO" and a brief reason. If YES, estimate how many more characters you need.\n\nSnippet:\n${result.snippet}`;
               const selectedModel = (typeof SettingsController !== 'undefined' && SettingsController.getSettings) ? SettingsController.getSettings().selectedModel : 'gpt-4.1-mini';
               if (selectedModel.startsWith('gpt')) {
                 if (typeof ApiService !== 'undefined' && ApiService.sendOpenAIRequest) {
                   const res = await ApiService.sendOpenAIRequest(selectedModel, [
-                    { role: 'system', content: 'You are an assistant helping to select the most relevant search results.' },
+                    { role: 'system', content: 'You are an assistant that decides if more content is needed from a web page.' },
                     { role: 'user', content: prompt }
                   ]);
-                  aiReply = res.choices[0].message.content.trim();
+                  aiReply = res.choices[0].message.content.trim().toLowerCase();
                 }
               } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
                 if (typeof ApiService !== 'undefined' && ApiService.createGeminiSession) {
                   const session = ApiService.createGeminiSession(selectedModel);
                   const chatHistory = [
-                    { role: 'system', content: 'You are an assistant helping to select the most relevant search results.' },
+                    { role: 'system', content: 'You are an assistant that decides if more content is needed from a web page.' },
                     { role: 'user', content: prompt }
                   ];
                   const result = await session.sendMessage(prompt, chatHistory);
                   const candidate = result.candidates[0];
                   if (candidate.content.parts) {
-                    aiReply = candidate.content.parts.map(p => p.text).join(' ').trim();
+                    aiReply = candidate.content.parts.map(p => p.text).join(' ').trim().toLowerCase();
                   } else if (candidate.content.text) {
-                    aiReply = candidate.content.text.trim();
+                    aiReply = candidate.content.text.trim().toLowerCase();
                   }
                 }
               }
-              if (this.debug) console.log('[ExecutionAgent-DEBUG] AI reply for result selection:', aiReply);
-              // Parse indices from reply
-              const match = aiReply && aiReply.match(/([\d, ]+)/);
-              if (match) {
-                selectedIndices = match[1].split(',').map(s => parseInt(s.trim(), 10) - 1).filter(n => !isNaN(n) && n >= 0 && n < webSearchResults.length);
-              }
             } catch (err) {
-              if (this.debug) console.warn('[ExecutionAgent-DEBUG] Error in AI-driven result selection:', err);
-              // Fallback: just pick the top N
-              selectedIndices = [0, 1, 2].filter(idx => idx < webSearchResults.length);
+              if (this.debug) console.warn('[ExecutionAgent-DEBUG] Error in deep reading LLM call:', err);
+              shouldContinue = false;
+              break;
             }
-            // Update read_url steps with selected URLs
-            let readUrlStepIdx = 0;
-            for (let j = 0; j < plan.length; j++) {
-              if (plan[j].tool === 'read_url') {
-                if (selectedIndices[readUrlStepIdx] !== undefined && webSearchResults[selectedIndices[readUrlStepIdx]]) {
-                  plan[j].arguments.url = webSearchResults[selectedIndices[readUrlStepIdx]].url;
-                } else {
-                  // Remove or skip this step if not enough selected
-                  plan.splice(j, 1);
-                  j--;
+            if (aiReply.startsWith('yes') && totalLength < 10000) {
+              start += chunkSize;
+              chunkCount++;
+              shouldContinue = true;
+            } else {
+              shouldContinue = false;
+            }
+          }
+          collectedSnippets.push(snippet);
+          results.push({ step: step.step, result: { url, snippet } });
+          if (this.debug) console.log('[ExecutionAgent-DEBUG] Deep reading complete for', url, 'snippet length:', snippet.length);
+          if (typeof narrateFn === 'function') {
+            await narrateFn(`Deep reading complete for ${url}, snippet length: ${snippet.length}`);
+          }
+        } else {
+          const result = await toolFn(step.arguments);
+          results.push({ step: step.step, result });
+          if (this.debug) console.log('[ExecutionAgent-DEBUG] Result for step', step.step, ':', result);
+          if (typeof narrateFn === 'function') {
+            await narrateFn(`Result: ${JSON.stringify(result)}`);
+          }
+          // Store web_search results for dynamic URL filling and AI-driven selection
+          if (step.tool === 'web_search' && Array.isArray(result)) {
+            webSearchResults = result;
+            // --- AI-driven selection of which results to read ---
+            if (webSearchResults.length > 0) {
+              // Build prompt as in suggestResultsToRead
+              const prompt = `Given these search results for the query: "${step.arguments.query}", which results (by number) are most relevant to read in detail?\n\n${webSearchResults.map((r, idx) => `${idx+1}. ${r.title} - ${r.snippet}`).join('\n')}\n\nReply with a comma-separated list of result numbers.`;
+              let aiReply = '';
+              let selectedIndices = [];
+              try {
+                // Use OpenAI or Gemini as in chat-controller.js
+                const selectedModel = (typeof SettingsController !== 'undefined' && SettingsController.getSettings) ? SettingsController.getSettings().selectedModel : 'gpt-4.1-mini';
+                if (selectedModel.startsWith('gpt')) {
+                  if (typeof ApiService !== 'undefined' && ApiService.sendOpenAIRequest) {
+                    const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                      { role: 'system', content: 'You are an assistant helping to select the most relevant search results.' },
+                      { role: 'user', content: prompt }
+                    ]);
+                    aiReply = res.choices[0].message.content.trim();
+                  }
+                } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
+                  if (typeof ApiService !== 'undefined' && ApiService.createGeminiSession) {
+                    const session = ApiService.createGeminiSession(selectedModel);
+                    const chatHistory = [
+                      { role: 'system', content: 'You are an assistant helping to select the most relevant search results.' },
+                      { role: 'user', content: prompt }
+                    ];
+                    const result = await session.sendMessage(prompt, chatHistory);
+                    const candidate = result.candidates[0];
+                    if (candidate.content.parts) {
+                      aiReply = candidate.content.parts.map(p => p.text).join(' ').trim();
+                    } else if (candidate.content.text) {
+                      aiReply = candidate.content.text.trim();
+                    }
+                  }
                 }
-                readUrlStepIdx++;
+                if (this.debug) console.log('[ExecutionAgent-DEBUG] AI reply for result selection:', aiReply);
+                // Parse indices from reply
+                const match = aiReply && aiReply.match(/([\d, ]+)/);
+                if (match) {
+                  selectedIndices = match[1].split(',').map(s => parseInt(s.trim(), 10) - 1).filter(n => !isNaN(n) && n >= 0 && n < webSearchResults.length);
+                }
+              } catch (err) {
+                if (this.debug) console.warn('[ExecutionAgent-DEBUG] Error in AI-driven result selection:', err);
+                // Fallback: just pick the top N
+                selectedIndices = [0, 1, 2].filter(idx => idx < webSearchResults.length);
               }
+              // Update read_url steps with selected URLs
+              let readUrlStepIdx = 0;
+              for (let j = 0; j < plan.length; j++) {
+                if (plan[j].tool === 'read_url') {
+                  if (selectedIndices[readUrlStepIdx] !== undefined && webSearchResults[selectedIndices[readUrlStepIdx]]) {
+                    plan[j].arguments.url = webSearchResults[selectedIndices[readUrlStepIdx]].url;
+                  } else {
+                    // Remove or skip this step if not enough selected
+                    plan.splice(j, 1);
+                    j--;
+                  }
+                  readUrlStepIdx++;
+                }
+              }
+            }
+          }
+          // Fallback: If web_search returns empty, run instant_answer
+          if (step.tool === 'web_search' && Array.isArray(result) && result.length === 0) {
+            const alreadyHasInstant = plan.some(s => s.tool === 'instant_answer');
+            if (!alreadyHasInstant) {
+              const instantStep = {
+                step: step.step + 1,
+                description: `Fallback: Get instant answer for "${step.arguments.query}"`,
+                tool: 'instant_answer',
+                arguments: { query: step.arguments.query }
+              };
+              if (this.debug) console.log('[ExecutionAgent-DEBUG] Adding fallback instant_answer step:', instantStep);
+              plan.splice(i + 1, 0, instantStep);
             }
           }
         }
-        // Fallback: If web_search returns empty, run instant_answer
-        if (step.tool === 'web_search' && Array.isArray(result) && result.length === 0) {
-          // Only add instant_answer if not already in the plan
-          const alreadyHasInstant = plan.some(s => s.tool === 'instant_answer');
-          if (!alreadyHasInstant) {
-            const instantStep = {
-              step: step.step + 1,
-              description: `Fallback: Get instant answer for "${step.arguments.query}"`,
-              tool: 'instant_answer',
-              arguments: { query: step.arguments.query }
-            };
-            if (this.debug) console.log('[ExecutionAgent-DEBUG] Adding fallback instant_answer step:', instantStep);
-            plan.splice(i + 1, 0, instantStep);
-          }
+        // After all read_url steps, pass collectedSnippets to summarize step
+        if (step.tool === 'summarize') {
+          step.arguments.snippets = collectedSnippets.slice();
+          if (this.debug) console.log('[ExecutionAgent-DEBUG] Passing collected snippets to summarize step:', collectedSnippets);
         }
       } catch (err) {
         const errorMsg = `Error in step ${step.step}: ${err.message}`;
