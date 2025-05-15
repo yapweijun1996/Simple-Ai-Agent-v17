@@ -236,7 +236,7 @@ Begin Reasoning Now:
     } catch (e) {
         PlanningAgent = window.PlanningAgent;
         ExecutionAgent = window.ExecutionAgent;
-        InstructionAgent = window.InstructionAgent;
+        InstructionAgent = window.InstructionAgent || InstructionAgent;
     }
 
     /**

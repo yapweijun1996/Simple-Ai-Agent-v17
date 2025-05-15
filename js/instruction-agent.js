@@ -22,4 +22,6 @@ const InstructionAgent = (function() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { InstructionAgent };
-} 
+}
+
+if (typeof window !== 'undefined') window.InstructionAgent = InstructionAgent; 
