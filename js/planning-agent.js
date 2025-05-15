@@ -54,4 +54,5 @@ class PlanningAgent {
 }
 
 // Export for use in other modules
-if (typeof module !== 'undefined') module.exports = { PlanningAgent }; 
+if (typeof module !== 'undefined') module.exports = { PlanningAgent };
+if (typeof window !== 'undefined') window.PlanningAgent = PlanningAgent; 

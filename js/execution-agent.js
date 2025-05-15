@@ -53,4 +53,5 @@ class ExecutionAgent {
 }
 
 // Export for use in other modules
-if (typeof module !== 'undefined') module.exports = { ExecutionAgent }; 
+if (typeof module !== 'undefined') module.exports = { ExecutionAgent };
+if (typeof window !== 'undefined') window.ExecutionAgent = ExecutionAgent; 
