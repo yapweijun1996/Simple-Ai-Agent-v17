@@ -428,21 +428,9 @@ Answer: [your final, concise answer based on the reasoning above]`;
         UIController.addMessage('user', message);
         UIController.clearUserInput();
 
-        const enhancedMessage = prepareMessage(message);
-        const currentSettings = SettingsController.getSettings();
-        const selectedModel = currentSettings.selectedModel;
-
         try {
-            if (selectedModel.startsWith('gpt')) {
-                state.chatHistory.push({ role: 'user', content: enhancedMessage });
-                debugLog("Sent enhanced message to GPT:", enhancedMessage);
-                await handleOpenAIMessage(selectedModel, enhancedMessage);
-            } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
-                if (state.chatHistory.length === 0) {
-                    state.chatHistory.push({ role: 'user', content: '' });
-                }
-                await handleGeminiMessage(selectedModel, enhancedMessage);
-            }
+            // Use the new planning and execution workflow
+            await runPlanningAndExecutionWorkflow(message);
         } catch (error) {
             let userMessage = 'Error: ' + error.message;
             if (error.message && error.message.includes('Failed to fetch')) {
