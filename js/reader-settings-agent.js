@@ -21,4 +21,6 @@ const ReaderSettingsAgent = (function() {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { ReaderSettingsAgent };
-} 
+}
+
+if (typeof window !== 'undefined') window.ReaderSettingsAgent = ReaderSettingsAgent; 
