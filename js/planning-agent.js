@@ -26,15 +26,18 @@ class PlanningAgent {
           tool: 'web_search',
           arguments: { query: userQuery }
         });
+        // Read top 3 results (placeholders for URLs)
+        for (let i = 0; i < 3; i++) {
+          plan.push({
+            step: 2 + i,
+            description: `Read content from top result #${i + 1}`,
+            tool: 'read_url',
+            arguments: { url: '<<TO_BE_FILLED_BY_EXECUTOR>>' }
+          });
+        }
         plan.push({
-          step: 2,
-          description: 'Read the top 1 result',
-          tool: 'read_url',
-          arguments: { url: '<<TO_BE_FILLED_BY_EXECUTOR>>' }
-        });
-        plan.push({
-          step: 3,
-          description: 'Summarize the findings',
+          step: 5,
+          description: 'Summarize the findings from all read results',
           tool: 'summarize',
           arguments: { snippets: [] }
         });
@@ -46,14 +49,27 @@ class PlanningAgent {
           arguments: { prompt: userQuery }
         });
       } else {
-        // Default: Try web_search first for all other queries
+        // Default: Multi-step plan for general queries
         plan.push({
           step: 1,
           description: `Search for information about: "${userQuery}"`,
           tool: 'web_search',
           arguments: { query: userQuery }
         });
-        // Do not add instant_answer here; fallback will be handled by ExecutionAgent
+        for (let i = 0; i < 3; i++) {
+          plan.push({
+            step: 2 + i,
+            description: `Read content from top result #${i + 1}`,
+            tool: 'read_url',
+            arguments: { url: '<<TO_BE_FILLED_BY_EXECUTOR>>' }
+          });
+        }
+        plan.push({
+          step: 5,
+          description: 'Summarize the findings from all read results',
+          tool: 'summarize',
+          arguments: { snippets: [] }
+        });
       }
       if (this.debug) console.log('[PlanningAgent-DEBUG] Generated plan:', JSON.stringify(plan, null, 2));
       return plan;
