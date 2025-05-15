@@ -92,7 +92,7 @@ Begin Reasoning Now:
         web_search: async function(args) {
             debugLog('Tool: web_search', args);
             if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
-                UIController.addMessage('ai', 'Error: Invalid web_search query.');
+                // UIController.addMessage('ai', 'Error: Invalid web_search query.');
                 return null;
             }
             const engine = args.engine || 'duckduckgo';
@@ -103,29 +103,23 @@ Begin Reasoning Now:
             let attempts = 0;
             const MAX_ATTEMPTS = 3;
             while (attempts < MAX_ATTEMPTS) {
-                UIController.showSpinner(`Searching (${engine}) for "${queriesTried[attempts]}"...`, getAgentDetails());
-                UIController.showStatus(`Searching (${engine}) for "${queriesTried[attempts]}"...`, getAgentDetails());
+                // UIController.showSpinner and UIController.showStatus removed
                 let results = [];
                 try {
                     const streamed = [];
                     results = await ToolsService.webSearch(queriesTried[attempts], (result) => {
                         streamed.push(result);
-                        // Pass highlight flag if this index is in highlightedResultIndices
-                        const idx = streamed.length - 1;
-                        UIController.addSearchResult(result, (url) => {
-                            processToolCall({ tool: 'read_url', arguments: { url, start: 0, length: 1122 } });
-                        }, state.highlightedResultIndices.has(idx));
+                        // UIController.addSearchResult removed
                     }, engine);
                     debugLog(`Web search results for query [${queriesTried[attempts]}]:`, results);
                 } catch (err) {
-                    UIController.hideSpinner();
-                    UIController.addMessage('ai', `Web search failed: ${err.message}`);
+                    // UIController.hideSpinner and UIController.addMessage removed
+                    debugLog(`Web search failed: ${err.message}`);
                     state.chatHistory.push({ role: 'assistant', content: `Web search failed: ${err.message}` });
                     break;
                 }
                 allResults = allResults.concat(results);
                 lastResults = results;
-                // If good results, break
                 if (results.length >= 3 || attempts === MAX_ATTEMPTS - 1) break;
                 // Ask AI for a better query
                 let betterQuery = null;
@@ -165,10 +159,9 @@ Begin Reasoning Now:
                 }
                 attempts++;
             }
-            UIController.hideSpinner();
-            UIController.clearStatus();
+            // UIController.hideSpinner and UIController.clearStatus removed
             if (!allResults.length) {
-                UIController.addMessage('ai', `No search results found for "${args.query}" after ${attempts+1} attempts.`);
+                debugLog(`No search results found for "${args.query}" after ${attempts+1} attempts.`);
             }
             // Remove duplicate results by URL
             const uniqueResults = [];
@@ -189,49 +182,42 @@ Begin Reasoning Now:
         read_url: async function(args) {
             debugLog('Tool: read_url', args);
             if (!args.url || typeof args.url !== 'string' || !/^https?:\/\//.test(args.url)) {
-                UIController.addMessage('ai', 'Error: Invalid read_url argument.');
+                // UIController.addMessage('ai', 'Error: Invalid read_url argument.');
                 return null;
             }
-            UIController.showSpinner(`Reading content from ${args.url}...`, getAgentDetails());
-            UIController.showStatus(`Reading content from ${args.url}...`, getAgentDetails());
+            // UIController.showSpinner and UIController.showStatus removed
             try {
                 const result = await ToolsService.readUrl(args.url);
                 const start = (typeof args.start === 'number' && args.start >= 0) ? args.start : 0;
                 const length = (typeof args.length === 'number' && args.length > 0) ? args.length : 1122;
                 const snippet = String(result).slice(start, start + length);
                 const hasMore = (start + length) < String(result).length;
-                UIController.addReadResult(args.url, snippet, hasMore);
-                const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
-                state.chatHistory.push({ role: 'assistant', content: plainTextSnippet });
-                state.readSnippets.push(snippet);
-                UIController.hideSpinner();
-                UIController.clearStatus();
+                // UIController.addReadResult removed
+                // UIController.hideSpinner and UIController.clearStatus removed
                 return { url: args.url, snippet, hasMore };
             } catch (err) {
-                UIController.hideSpinner();
-                UIController.addMessage('ai', `Read URL failed: ${err.message}`);
+                // UIController.hideSpinner and UIController.addMessage removed
                 state.chatHistory.push({ role: 'assistant', content: `Read URL failed: ${err.message}` });
-                UIController.clearStatus();
+                // UIController.clearStatus removed
                 return { error: err.message };
             }
         },
         instant_answer: async function(args) {
             debugLog('Tool: instant_answer', args);
             if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
-                UIController.addMessage('ai', 'Error: Invalid instant_answer query.');
+                // UIController.addMessage('ai', 'Error: Invalid instant_answer query.');
                 return null;
             }
-            UIController.showStatus(`Retrieving instant answer for "${args.query}"...`, getAgentDetails());
+            // UIController.showStatus removed
             try {
                 const result = await ToolsService.instantAnswer(args.query);
                 const text = JSON.stringify(result, null, 2);
-                UIController.addMessage('ai', text);
+                // UIController.addMessage removed
                 state.chatHistory.push({ role: 'assistant', content: text });
-                UIController.clearStatus();
+                // UIController.clearStatus removed
                 return result;
             } catch (err) {
-                UIController.clearStatus();
-                UIController.addMessage('ai', `Instant answer failed: ${err.message}`);
+                // UIController.clearStatus and UIController.addMessage removed
                 state.chatHistory.push({ role: 'assistant', content: `Instant answer failed: ${err.message}` });
                 return { error: err.message };
             }

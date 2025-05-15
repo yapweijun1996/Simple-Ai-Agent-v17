@@ -175,7 +175,7 @@ class ExecutionAgent {
           results.push({ step: step.step, result: { url, snippet } });
           this.debugLog('STEP', `Deep reading complete for ${url}, snippet length: ${snippet.length}`);
           if (typeof narrateFn === 'function') {
-            await narrateFn(`Deep reading complete for ${url}, snippet length: ${snippet.length}`);
+            await narrateFn(`Read content from [Source](${url}):\n${snippet.slice(0, 500)}${snippet.length > 500 ? '... (truncated)' : ''}`);
           }
         } else {
           const result = await toolFn(step.arguments);
@@ -183,7 +183,20 @@ class ExecutionAgent {
           results.push({ step: step.step, result });
           this.debugLog('STEP', `Result for step ${step.step} :`, result);
           if (typeof narrateFn === 'function') {
-            await narrateFn(`Result: ${JSON.stringify(result)}`);
+            if (step.tool === 'web_search' && Array.isArray(result)) {
+              if (result.length === 0) {
+                await narrateFn('No search results found.');
+              } else {
+                const formatted = result.slice(0, 3).map((r, i) => `${i+1}. [${r.title}](${r.url}): ${r.snippet}`).join('\n');
+                await narrateFn(`Top search results:\n${formatted}`);
+              }
+            } else if (step.tool === 'instant_answer' && result && typeof result === 'object') {
+              await narrateFn(`Instant answer: ${JSON.stringify(result)}`);
+            } else if (result && result.error) {
+              await narrateFn(`Error: ${result.error}`);
+            } else {
+              await narrateFn(`Result: ${JSON.stringify(result)}`);
+            }
           }
           if (step.tool === 'web_search' && Array.isArray(result)) {
             webSearchResults = result;
