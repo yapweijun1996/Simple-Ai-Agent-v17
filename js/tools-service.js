@@ -142,7 +142,14 @@ const ToolsService = (function() {
             });
           });
           const resultText = texts.join('\n\n').trim();
-          if (resultText) return resultText;
+          if (resultText) {
+            return resultText;
+          }
+          // Fallback: extract full body text if no paragraphs or headings found
+          const bodyText = doc.body && doc.body.textContent ? doc.body.textContent.trim() : '';
+          if (bodyText) {
+            return bodyText;
+          }
         } catch (err) {
           toolsDebugLog(`Proxy ${proxy.name} failed: ${err.message}`);
         }
