@@ -237,6 +237,17 @@ Begin Reasoning Now:
         }
     };
 
+    // [IMPORTS for PlanningAgent and ExecutionAgent]
+    // For browser, use window if needed; for Node, use require
+    let PlanningAgent, ExecutionAgent;
+    try {
+        ({ PlanningAgent } = require('./planning-agent.js'));
+        ({ ExecutionAgent } = require('./execution-agent.js'));
+    } catch (e) {
+        PlanningAgent = window.PlanningAgent;
+        ExecutionAgent = window.ExecutionAgent;
+    }
+
     /**
      * Initializes the chat controller
      * @param {Object} initialSettings - Initial settings for the chat
@@ -997,6 +1008,32 @@ Answer: [your final, concise answer based on the reasoning above]`;
         return planPatterns.some(re => re.test(text.trim()));
     }
 
+    /**
+     * Runs the planning and execution workflow for a user query.
+     * 1. Generates a plan using PlanningAgent.
+     * 2. Displays the plan to the user.
+     * 3. Executes the plan step by step using ExecutionAgent.
+     * 4. Narrates each step and shows results in the chat.
+     * @param {string} userQuery
+     */
+    async function runPlanningAndExecutionWorkflow(userQuery) {
+        // 1. Instantiate PlanningAgent and generate plan
+        const planningAgent = new PlanningAgent(Object.keys(toolHandlers));
+        UIController.addMessage('ai', '🤔 Planning steps for your query...');
+        const plan = await planningAgent.createPlan(userQuery);
+        if (!plan || !plan.length) {
+            UIController.addMessage('ai', 'Could not generate a plan for your query.');
+            return;
+        }
+        // 2. Display the plan to the user
+        const planHtml = `<div class="tool-result"><strong>Plan:</strong><ol>${plan.map(step => `<li><b>Step ${step.step}:</b> ${step.description} <span style='color:#888'>(Tool: ${step.tool})</span></li>`).join('')}</ol></div>`;
+        UIController.addHtmlMessage('ai', planHtml);
+        // 3. Instantiate ExecutionAgent
+        const executionAgent = new ExecutionAgent(toolHandlers);
+        // 4. Narrate and execute each step
+        await executionAgent.executePlan(plan, msg => UIController.addMessage('ai', msg));
+    }
+
     // Public API
     return {
         init,
@@ -1008,5 +1045,6 @@ Answer: [your final, concise answer based on the reasoning above]`;
         clearChat,
         processToolCall,
         getToolCallHistory: () => [...state.toolCallHistory],
+        runPlanningAndExecutionWorkflow,
     };
 })(); 
