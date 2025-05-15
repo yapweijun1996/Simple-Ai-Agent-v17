@@ -273,7 +273,15 @@ class ExecutionAgent {
    * @param {number} round - Recursion round.
    */
   async summarizeAndSynthesize(snippets, userQuery, narrateFn, round = 1) {
-    if (!snippets || !snippets.length) return;
+    // Filter out empty, null, or invalid snippets
+    const validSnippets = (snippets || []).filter(s => typeof s === 'string' && s.trim() !== '' && s.trim().toLowerCase() !== 'nullnullnullnullnull');
+    if (!validSnippets.length) {
+      this.debugLog('WARN', '[Agent] No valid content to summarize. All snippets were empty or invalid.', snippets);
+      if (typeof narrateFn === 'function') {
+        await narrateFn("Sorry, I couldn't extract any readable content from the selected web pages.");
+      }
+      return;
+    }
     const selectedModel = (typeof SettingsController !== 'undefined' && SettingsController.getSettings) ? SettingsController.getSettings().selectedModel : 'gpt-4.1-mini';
     const MAX_PROMPT_LENGTH = 5857;
     const SUMMARIZATION_TIMEOUT = 88000;
@@ -293,8 +301,8 @@ class ExecutionAgent {
       if (current.length) batches.push(current);
       return batches;
     }
-    if (snippets.length === 1) {
-      const prompt = `Summarize the following information extracted from web pages (be as concise as possible):\n\n${snippets[0]}`;
+    if (validSnippets.length === 1) {
+      const prompt = `Summarize the following information extracted from web pages (be as concise as possible):\n\n${validSnippets[0]}`;
       let aiReply = '';
       this.debugLog('STEP', `[Summarize] Round ${round}: Summarizing single snippet...`);
       this.debugLog('STEP', 'Summarization LLM prompt:', prompt);
@@ -337,7 +345,7 @@ class ExecutionAgent {
       this.debugLog('STEP', '[Agent] Summarization complete. Single summary length:', aiReply.length);
       return;
     }
-    const batches = splitIntoBatches(snippets, MAX_PROMPT_LENGTH);
+    const batches = splitIntoBatches(validSnippets, MAX_PROMPT_LENGTH);
     let batchSummaries = [];
     const totalBatches = batches.length;
     try {
