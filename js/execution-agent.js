@@ -3,10 +3,15 @@
 class ExecutionAgent {
   /**
    * @param {Object} toolHandlers - An object mapping tool names to handler functions.
-   * Example: { web_search: async (args) => {...}, read_url: async (args) => {...} }
+   * @param {boolean} debug - Enable debug logging (default: false)
    */
-  constructor(toolHandlers = {}) {
+  constructor(toolHandlers = {}, debug = false) {
     this.toolHandlers = toolHandlers;
+    this.debug = debug;
+  }
+
+  setDebug(debug) {
+    this.debug = !!debug;
   }
 
   /**
@@ -18,6 +23,7 @@ class ExecutionAgent {
   async executePlan(plan, narrateFn = null) {
     const results = [];
     for (const step of plan) {
+      if (this.debug) console.log('[ExecutionAgent-DEBUG] Executing step:', step);
       // Narrate the action
       if (typeof narrateFn === 'function') {
         await narrateFn(`Step ${step.step}: ${step.description}`);
@@ -26,6 +32,7 @@ class ExecutionAgent {
       const toolFn = this.toolHandlers[step.tool];
       if (!toolFn) {
         const errorMsg = `Error: Tool handler for "${step.tool}" not found.`;
+        if (this.debug) console.error('[ExecutionAgent-DEBUG] ' + errorMsg);
         if (typeof narrateFn === 'function') {
           await narrateFn(errorMsg);
         }
@@ -34,13 +41,16 @@ class ExecutionAgent {
       }
       // Execute the tool
       try {
+        if (this.debug) console.log('[ExecutionAgent-DEBUG] Calling tool:', step.tool, 'with args:', step.arguments);
         const result = await toolFn(step.arguments);
         results.push({ step: step.step, result });
+        if (this.debug) console.log('[ExecutionAgent-DEBUG] Result for step', step.step, ':', result);
         if (typeof narrateFn === 'function') {
           await narrateFn(`Result: ${JSON.stringify(result)}`);
         }
       } catch (err) {
         const errorMsg = `Error in step ${step.step}: ${err.message}`;
+        if (this.debug) console.error('[ExecutionAgent-DEBUG] ' + errorMsg, err);
         if (typeof narrateFn === 'function') {
           await narrateFn(errorMsg);
         }
@@ -48,6 +58,7 @@ class ExecutionAgent {
         break; // Stop execution on error (or could continue)
       }
     }
+    if (this.debug) console.log('[ExecutionAgent-DEBUG] All step results:', results);
     return results;
   }
 }
