@@ -12,9 +12,15 @@ const Utils = (function() {
     let underTokenStatusTimer = null;
 
     // Debug logging helper
-    function debugLog(...args) {
-        if (typeof window !== 'undefined' && window.ChatController && window.ChatController.getSettings && window.ChatController.getSettings().debug) {
-            console.log('[AI-DEBUG]', ...args);
+    function utilsDebugLog(...args) {
+        try {
+            const debug = (typeof SettingsController !== 'undefined' && SettingsController.getSettings && SettingsController.getSettings().debug);
+            if (debug) {
+                console.warn('[UTILS-DEBUG]', ...args);
+            }
+        } catch (e) {
+            // Fallback: always log if settings unavailable
+            console.warn('[UTILS-DEBUG]', ...args);
         }
     }
 
@@ -71,7 +77,7 @@ const Utils = (function() {
         try {
             return { data: JSON.parse(dataStr) };
         } catch (err) {
-            debugLog('Stream parsing error', err);
+            utilsDebugLog('Stream parsing error', err);
             return null;
         }
     }
@@ -84,7 +90,7 @@ const Utils = (function() {
     function createFromTemplate(templateId) {
         const template = document.getElementById(templateId);
         if (!template) {
-            debugLog(`Template not found: ${templateId}`);
+            utilsDebugLog(`Template not found: ${templateId}`);
             return null;
         }
         return template.content.cloneNode(true).firstElementChild;
@@ -254,7 +260,7 @@ const Utils = (function() {
                 return response;
             } catch (err) {
                 if (err.name === 'AbortError') {
-                    debugLog(`Fetch attempt ${attempt + 1} aborted:`, err.message || err);
+                    utilsDebugLog(`Fetch attempt ${attempt + 1} aborted:`, err.message || err);
                     throw err; // Do not retry on AbortError
                 }
                 attempt++;
@@ -304,124 +310,11 @@ const Utils = (function() {
                 return response;
             } catch (err) {
                 lastError = err;
-                debugLog(`Proxy fetch attempt ${attempt} via ${prefix || 'direct'} failed:`, err);
+                utilsDebugLog(`Proxy fetch attempt ${attempt} via ${prefix || 'direct'} failed:`, err);
                 if (attempt < retries) await new Promise(r => setTimeout(r, retryDelay));
             }
         }
         throw lastError;
-    }
-
-    /**
-     * Pretty-print utility for debug logs
-     * @param {any} obj
-     * @returns {string}
-     */
-    function pretty(obj) {
-        try {
-            return JSON.stringify(obj, null, 2);
-        } catch {
-            return String(obj);
-        }
-    }
-
-    /**
-     * Sanitizes a JSON string for safe parsing
-     * @param {string} jsonStr
-     * @returns {string}
-     */
-    function sanitizeJsonString(jsonStr) {
-        // Remove trailing commas before } or ]
-        jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
-        // Replace single quotes with double quotes
-        jsonStr = jsonStr.replace(/'/g, '"');
-        // Remove newlines inside string values
-        jsonStr = jsonStr.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"/gs, (m) => m.replace(/\n/g, ''));
-        return jsonStr;
-    }
-
-    /**
-     * Wraps a function to log its call and arguments if debug mode is enabled
-     * @param {Function} fn - The function to wrap
-     * @param {string} name - The function name for logging
-     * @param {string} [module] - Optional module name for prefix
-     * @returns {Function}
-     */
-    function debugWrap(fn, name, module = 'FUNC') {
-        return function(...args) {
-            try {
-                const debug = (typeof SettingsController !== 'undefined' && SettingsController.getSettings && SettingsController.getSettings().debug);
-                if (debug) {
-                    console.log(`[${module}] ${name} called`, ...args);
-                }
-            } catch {}
-            return fn.apply(this, args);
-        };
-    }
-
-    /**
-     * Wraps all functions in an object with debugWrap
-     * @param {Object} obj - The object whose functions to wrap
-     * @param {string} [module] - Optional module name for prefix
-     * @returns {Object} - New object with wrapped functions
-     */
-    function debugWrapAll(obj, module = 'FUNC') {
-        const wrapped = {};
-        for (const key in obj) {
-            if (typeof obj[key] === 'function') {
-                wrapped[key] = debugWrap(obj[key], key, module);
-            } else {
-                wrapped[key] = obj[key];
-            }
-        }
-        return wrapped;
-    }
-
-    /**
-     * Parses a Chain-of-Thought (CoT) response string to extract reasoning and answer.
-     * @param {string} text - The response text to parse
-     * @param {boolean} [allowPartial=false] - If true, allow partial extraction
-     * @returns {{thinking: string, answer: string}}
-     */
-    function parseCoTResponse(text, allowPartial = false) {
-        if (!text || typeof text !== 'string') return { thinking: '', answer: '' };
-        // Try to extract reasoning (thinking) and answer using common patterns
-        // 1. Look for explicit CoT markers
-        let thinking = '', answer = '';
-        // Pattern 1: "Step-by-step reasoning:" or "Chain of Thought:"
-        const cotPattern = /(?:Step[- ]by[- ]step reasoning|Chain of Thought|Reasoning|Thought process)[:\-\n]+([\s\S]+?)(?:\n+|$)(?:Final Answer|Answer|Conclusion)[:\-\n]+([\s\S]+)/i;
-        const match = text.match(cotPattern);
-        if (match) {
-            thinking = match[1].trim();
-            answer = match[2].trim();
-            return { thinking, answer };
-        }
-        // Pattern 2: Numbered steps followed by a final answer
-        const stepsPattern = /((?:\d+\..*\n?)+)(?:Final Answer|Answer|Conclusion)[:\-\n]+([\s\S]+)/i;
-        const match2 = text.match(stepsPattern);
-        if (match2) {
-            thinking = match2[1].trim();
-            answer = match2[2].trim();
-            return { thinking, answer };
-        }
-        // Pattern 3: Just a final answer
-        const answerPattern = /(?:Final Answer|Answer|Conclusion)[:\-\n]+([\s\S]+)/i;
-        const match3 = text.match(answerPattern);
-        if (match3) {
-            answer = match3[1].trim();
-            if (allowPartial) return { thinking: '', answer };
-        }
-        // Pattern 4: Only steps, no explicit answer
-        const stepsOnlyPattern = /((?:\d+\..*\n?)+)/;
-        const match4 = text.match(stepsOnlyPattern);
-        if (match4) {
-            thinking = match4[1].trim();
-            if (allowPartial) return { thinking, answer: '' };
-        }
-        // Fallback: return the whole text as answer if nothing else
-        if (!thinking && !answer && allowPartial) {
-            return { thinking: '', answer: text.trim() };
-        }
-        return { thinking, answer };
     }
 
     // Public API
@@ -442,12 +335,6 @@ const Utils = (function() {
         escapeHtml,
         fetchWithTimeout,
         fetchWithRetry,
-        fetchWithProxyRetry,
-        debugLog,
-        pretty,
-        sanitizeJsonString,
-        debugWrap,
-        debugWrapAll,
-        parseCoTResponse
+        fetchWithProxyRetry
     };
 })(); 

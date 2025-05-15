@@ -21,21 +21,12 @@ const SettingsController = (function() {
      * Creates and attaches the settings modal
      */
     function createSettingsModal() {
-        // Defensive: forcibly remove any lingering modal before creating a new one
-        const existingModal = document.getElementById('settings-modal');
-        if (existingModal && existingModal.parentNode) {
-            existingModal.parentNode.removeChild(existingModal);
-            if (window && window.console) console.log('[Settings] Removed lingering modal before creating new one');
-            settingsModal = null;
-        }
         if (settingsModal) return;
+        
         // Create modal from template
         settingsModal = Utils.createFromTemplate('settings-modal-template');
         document.body.appendChild(settingsModal);
-        // Add ARIA attributes for accessibility
-        settingsModal.setAttribute('role', 'dialog');
-        settingsModal.setAttribute('aria-modal', 'true');
-        settingsModal.setAttribute('aria-labelledby', 'settings-modal-title');
+        
         // Set initial values based on current settings
         document.getElementById('streaming-toggle').checked = settings.streaming;
         document.getElementById('cot-toggle').checked = settings.enableCoT;
@@ -43,22 +34,18 @@ const SettingsController = (function() {
         document.getElementById('model-select').value = settings.selectedModel;
         document.getElementById('dark-mode-toggle').checked = settings.darkMode;
         document.getElementById('debug-toggle').checked = settings.debug;
-        // Remove previous event listeners if any
-        const saveBtn = document.getElementById('save-settings');
-        const closeBtn = document.getElementById('close-settings');
-        const newSaveBtn = saveBtn.cloneNode(true);
-        const newCloseBtn = closeBtn.cloneNode(true);
-        saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
-        closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
-        // Re-query after replace
+        
+        // Add event listeners
         document.getElementById('save-settings').addEventListener('click', saveSettings);
         document.getElementById('close-settings').addEventListener('click', hideSettingsModal);
+        
         // Close when clicking outside the modal content
-        settingsModal.addEventListener('mousedown', function(event) {
+        settingsModal.addEventListener('click', function(event) {
             if (event.target === settingsModal) {
                 hideSettingsModal();
             }
         });
+
         // Focus trap logic
         const modalContent = settingsModal.querySelector('.settings-modal__content');
         const focusableSelectors = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -70,7 +57,6 @@ const SettingsController = (function() {
                 focusableEls = Array.from(modalContent.querySelectorAll(focusableSelectors));
                 firstEl = focusableEls[0];
                 lastEl = focusableEls[focusableEls.length - 1];
-                if (focusableEls.length === 0) return;
                 if (e.shiftKey) {
                     if (document.activeElement === firstEl) {
                         e.preventDefault();
@@ -118,76 +104,51 @@ const SettingsController = (function() {
      * Hides the settings modal
      */
     function hideSettingsModal() {
-        // Defensive: re-query modal in case reference is stale
-        let modal = settingsModal || document.getElementById('settings-modal');
-        if (modal) {
-            try {
-                // Always remove the modal from the DOM
-                if (modal.parentNode) {
-                    modal.parentNode.removeChild(modal);
-                    if (window && window.console) console.log('[Settings] Modal removed from DOM');
-                }
-                // Restore focus to settings button
-                if (showSettingsModal.lastFocused) {
-                    showSettingsModal.lastFocused.focus();
-                }
-                settingsModal = null;
-            } catch (err) {
-                if (window && window.console) console.log('[Settings] Error removing modal:', err);
-                settingsModal = null;
+        if (settingsModal) {
+            settingsModal.style.display = 'none';
+            // Restore focus to settings button
+            if (showSettingsModal.lastFocused) {
+                showSettingsModal.lastFocused.focus();
             }
-        } else {
-            if (window && window.console) console.log('[Settings] No modal found to hide');
         }
-        // Extra: forcibly remove any lingering modal with the same ID
-        const lingering = document.getElementById('settings-modal');
-        if (lingering && lingering.parentNode) {
-            lingering.parentNode.removeChild(lingering);
-            if (window && window.console) console.log('[Settings] Forcibly removed lingering modal after hide');
-        }
-        settingsModal = null;
-        if (window && window.console) console.log('[Settings] hideSettingsModal complete. settingsModal:', settingsModal);
     }
 
     /**
      * Saves settings from the modal
      */
     function saveSettings() {
-        try {
-            const streamingEnabled = document.getElementById('streaming-toggle').checked;
-            const cotEnabled = document.getElementById('cot-toggle').checked;
-            const showThinkingEnabled = document.getElementById('show-thinking-toggle').checked;
-            const selectedModelValue = document.getElementById('model-select').value;
-            const darkModeEnabled = document.getElementById('dark-mode-toggle').checked;
-            const debugEnabled = document.getElementById('debug-toggle').checked;
-            settings = {
-                ...settings,
-                streaming: streamingEnabled,
-                enableCoT: cotEnabled,
-                showThinking: showThinkingEnabled,
-                selectedModel: selectedModelValue,
-                darkMode: darkModeEnabled,
-                debug: debugEnabled
-            };
-            // Update light/dark mode class
-            if (darkModeEnabled) {
-                document.body.classList.remove('light-mode');
-            } else {
-                document.body.classList.add('light-mode');
-            }
-            // Update the chat controller settings
-            ChatController.updateSettings(settings);
-            // Broadcast to all modules if available
-            if (typeof ChatController !== 'undefined' && ChatController.broadcastSettingsUpdate) {
-                ChatController.broadcastSettingsUpdate(settings);
-            }
-            // Save settings to cookie
-            Utils.saveSettingsToCookie(settings);
-        } finally {
-            // Defensive: always re-query and hide modal
-            if (window && window.console) console.log('[Settings] saveSettings: closing modal');
-            hideSettingsModal();
+        const streamingEnabled = document.getElementById('streaming-toggle').checked;
+        const cotEnabled = document.getElementById('cot-toggle').checked;
+        const showThinkingEnabled = document.getElementById('show-thinking-toggle').checked;
+        const selectedModelValue = document.getElementById('model-select').value;
+        const darkModeEnabled = document.getElementById('dark-mode-toggle').checked;
+        const debugEnabled = document.getElementById('debug-toggle').checked;
+        
+        settings = {
+            ...settings,
+            streaming: streamingEnabled,
+            enableCoT: cotEnabled,
+            showThinking: showThinkingEnabled,
+            selectedModel: selectedModelValue,
+            darkMode: darkModeEnabled,
+            debug: debugEnabled
+        };
+        
+        // Update light/dark mode class
+        if (darkModeEnabled) {
+            document.body.classList.remove('light-mode');
+        } else {
+            document.body.classList.add('light-mode');
         }
+        
+        // Update the chat controller settings
+        ChatController.updateSettings(settings);
+        
+        // Save settings to cookie
+        Utils.saveSettingsToCookie(settings);
+        
+        // Hide modal
+        hideSettingsModal();
     }
 
     /**

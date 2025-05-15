@@ -173,5 +173,5 @@ const ToolsService = (function() {
       return response.json();
     }
 
-    return Utils.debugWrapAll({ webSearch, readUrl, instantAnswer }, 'TOOLS');
+    return { webSearch, readUrl, instantAnswer };
 })(); 

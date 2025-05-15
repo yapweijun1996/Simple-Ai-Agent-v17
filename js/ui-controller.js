@@ -6,6 +6,19 @@
 const UIController = (function() {
     'use strict';
 
+    // Toggleable UI debug log
+    function uiDebugLog(...args) {
+        try {
+            const debug = (typeof SettingsController !== 'undefined' && SettingsController.getSettings && SettingsController.getSettings().debug);
+            if (debug) {
+                console.log('[UI-DEBUG]', ...args);
+            }
+        } catch (e) {
+            // Fallback: always log if settings unavailable
+            console.log('[UI-DEBUG]', ...args);
+        }
+    }
+
     // Private state
     let sendMessageCallback = null;
     let clearChatCallback = null;
@@ -22,12 +35,7 @@ const UIController = (function() {
     function init() {
         // Show the chat container
         document.getElementById('chat-container').style.display = 'flex';
-        // Ensure planning bar is always present and has ARIA attributes
-        const planningBar = document.getElementById('planning-bar');
-        if (planningBar) {
-            planningBar.setAttribute('role', 'region');
-            planningBar.setAttribute('aria-label', 'Plan Progress');
-        }
+        
         // Add enter key handler for message input
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
@@ -51,27 +59,21 @@ const UIController = (function() {
         if (sendButton) {
             sendButton.disabled = messageInput.value.trim().length === 0;
         }
-        // Accessibility: set aria-label for send button
-        if (sendButton) {
-            sendButton.setAttribute('aria-label', 'Send message');
-        }
         
         // Add global event delegation for thinking toggle buttons
         document.addEventListener('click', function(event) {
-            // Defensive: check if event.target and parentElement exist
-            const target = event.target;
-            const parent = target.parentElement;
-            if ((target.classList && target.classList.contains('toggle-thinking')) ||
-                (parent && parent.classList && parent.classList.contains('toggle-thinking'))) {
-                const button = (target.classList && target.classList.contains('toggle-thinking')) ?
-                    target : parent;
-                if (!button) return;
-                const messageElement = button.closest ? button.closest('.chat-app__message') : null;
+            if (event.target.classList.contains('toggle-thinking') || 
+                event.target.parentElement.classList.contains('toggle-thinking')) {
+                const button = event.target.classList.contains('toggle-thinking') ? 
+                               event.target : event.target.parentElement;
+                const messageElement = button.closest('.chat-app__message');
+                
                 // Toggle the expanded state
                 const isExpanded = button.getAttribute('data-expanded') === 'true';
                 button.setAttribute('data-expanded', !isExpanded);
+                
                 // Toggle visibility of thinking section
-                if (messageElement && messageElement.classList) {
+                if (messageElement) {
                     messageElement.classList.toggle('thinking-collapsed');
                     button.textContent = isExpanded ? 'Show thinking' : 'Hide thinking';
                 }
@@ -158,11 +160,9 @@ const UIController = (function() {
         // Add fade-in animation
         messageElement.classList.add('fade-in');
 
-        // Add plan/narration/error class if type is set
+        // Add plan/narration class if type is 'plan'
         if (type === 'plan') {
             messageElement.classList.add('plan-message');
-        } else if (type === 'error-message') {
-            messageElement.classList.add('error-message');
         }
 
         // Group consecutive messages from the same sender
@@ -191,8 +191,13 @@ const UIController = (function() {
         if (sender === 'ai') {
             setTimeout(() => {
                 const messageInput = document.getElementById('message-input');
+                uiDebugLog('[Focus Debug] Running focus logic after agent reply.');
+                uiDebugLog('[Focus Debug] Current activeElement:', document.activeElement);
                 if (messageInput && document.activeElement !== messageInput) {
+                    uiDebugLog('[Focus Debug] Focusing messageInput:', messageInput);
                     messageInput.focus();
+                } else {
+                    uiDebugLog('[Focus Debug] Not focusing: messageInput missing or already focused.');
                 }
             }, 100);
         }
@@ -230,6 +235,17 @@ const UIController = (function() {
     }
 
     /**
+     * Safely escapes HTML
+     * @param {string} html - The string to escape
+     * @returns {string} - Escaped HTML string
+     */
+    function escapeHtml(html) {
+        const div = document.createElement('div');
+        div.textContent = html;
+        return div.innerHTML;
+    }
+    
+    /**
      * Formats code blocks in message text (prevents recursion)
      * @param {string} text - The message text
      * @returns {string} - HTML with formatted code blocks
@@ -248,7 +264,7 @@ const UIController = (function() {
                     if (currentText) {
                         // Instead of calling formatMessageContent (which could recurse),
                         // just escape and format the non-code text directly.
-                        formatted += `<div>${Utils.escapeHtml(currentText).replace(/\n/g, '<br>')}</div>`;
+                        formatted += `<div>${escapeHtml(currentText).replace(/\n/g, '<br>')}</div>`;
                         currentText = '';
                     }
                     insideCode = true;
@@ -261,7 +277,7 @@ const UIController = (function() {
                 }
             } else if (insideCode) {
                 // Inside code block
-                formatted += Utils.escapeHtml(line) + '\n';
+                formatted += escapeHtml(line) + '\n';
             } else {
                 // Regular text
                 currentText += (currentText ? '\n' : '') + line;
@@ -269,7 +285,7 @@ const UIController = (function() {
         }
         // Add any remaining text (non-code)
         if (currentText) {
-            formatted += `<div>${Utils.escapeHtml(currentText).replace(/\n/g, '<br>')}</div>`;
+            formatted += `<div>${escapeHtml(currentText).replace(/\n/g, '<br>')}</div>`;
         }
         return formatted;
     }
@@ -285,8 +301,8 @@ const UIController = (function() {
             const thinkingMatch = text.match(/Thinking:(.*?)(?=Answer:|$)/s);
             const answerMatch = text.match(/Answer:(.*?)$/s);
             if (thinkingMatch && answerMatch) {
-                const thinkingContent = Utils.escapeHtml(thinkingMatch[1].trim());
-                const answerContent = Utils.escapeHtml(answerMatch[1].trim());
+                const thinkingContent = escapeHtml(thinkingMatch[1].trim());
+                const answerContent = escapeHtml(answerMatch[1].trim());
                 return `<div class="thinking-section"><strong>Thinking:</strong><br>${thinkingContent.replace(/\n/g, '<br>')}</div>\n<div class="answer-section"><strong>Answer:</strong><br>${answerContent.replace(/\n/g, '<br>')}</div>`;
             }
         }
@@ -295,7 +311,7 @@ const UIController = (function() {
             return formatCodeBlocks(text);
         }
         // Otherwise, escape and format as plain text
-        return Utils.escapeHtml(text).replace(/\n/g, '<br>');
+        return escapeHtml(text).replace(/\n/g, '<br>');
     }
 
     /**
@@ -515,8 +531,6 @@ const UIController = (function() {
      */
     function showError(message) {
         setStatusBar(document.getElementById('status-bar'), { type: 'error', message, autoDismiss: false });
-        // Also add error to chat window as a visible message
-        addMessage('ai', message, 'error-message');
     }
 
     // Helper: Set thinking indicator
@@ -580,206 +594,8 @@ const UIController = (function() {
         if (sendButton) sendButton.disabled = messageInput.value.trim().length === 0;
     }
 
-    /**
-     * Disables the message input and send button
-     */
-    function disableMessageInput() {
-        const messageInput = document.getElementById('message-input');
-        const sendButton = document.getElementById('send-button');
-        if (messageInput) messageInput.disabled = true;
-        if (sendButton) sendButton.disabled = true;
-    }
-
-    // --- Planning Bar Logic (Improved) ---
-    let planningBarCollapsed = false;
-    function renderPlanningBar(planSteps) {
-        const bar = document.getElementById('planning-bar');
-        if (!bar) return;
-        // Always clear bar first
-        bar.innerHTML = '';
-        // If no plan steps, hide bar and return
-        if (!planSteps || !planSteps.length) {
-            bar.style.display = 'none';
-            return;
-        }
-        // Show bar if plan steps exist
-        bar.style.display = 'block';
-        bar.setAttribute('role', 'region');
-        bar.setAttribute('aria-label', 'Plan Progress');
-        // Collapsible control
-        const collapseBtn = document.createElement('button');
-        collapseBtn.className = 'planning-bar__collapse';
-        collapseBtn.innerHTML = planningBarCollapsed ? 'Show Plan ▲' : 'Hide Plan ▼';
-        collapseBtn.onclick = () => {
-            planningBarCollapsed = !planningBarCollapsed;
-            renderPlanningBar(planSteps);
-        };
-        bar.appendChild(collapseBtn);
-        if (planningBarCollapsed) {
-            return;
-        }
-        // Progress bar with animation and step count
-        const doneCount = planSteps.filter(s => s.status === 'done').length;
-        const progress = planSteps.length ? Math.round((doneCount / planSteps.length) * 100) : 0;
-        const progressBar = document.createElement('div');
-        progressBar.className = 'planning-progress-bar';
-        progressBar.innerHTML = `<div class="planning-progress-bar__fill" style="width:${progress}%; transition: width 0.5s;"></div>`;
-        bar.appendChild(progressBar);
-        // Step count display
-        const stepCountDiv = document.createElement('div');
-        stepCountDiv.className = 'planning-bar__step-count';
-        const currentIdx = planSteps.findIndex(s => s.status === 'in-progress');
-        stepCountDiv.innerHTML = currentIdx !== -1 ? `Step <strong>${currentIdx + 1}</strong> of <strong>${planSteps.length}</strong>` : `${doneCount} of ${planSteps.length} steps done`;
-        bar.appendChild(stepCountDiv);
-        // Steps
-        planSteps.forEach((step, idx) => {
-            const stepDiv = document.createElement('div');
-            stepDiv.className = 'planning-step planning-step--' + step.status;
-            stepDiv.setAttribute('tabindex', '0');
-            stepDiv.setAttribute('role', 'button');
-            stepDiv.setAttribute('aria-expanded', step.status === 'in-progress' || stepDiv.classList.contains('expanded'));
-            if (step.status === 'in-progress') stepDiv.classList.add('current');
-            let icon = '⏳', statusLabel = 'Pending';
-            if (step.status === 'done') { icon = '✅'; statusLabel = 'Done'; }
-            else if (step.status === 'in-progress') { icon = '🔄'; statusLabel = 'In Progress'; }
-            else if (step.status === 'error') { icon = '❌'; statusLabel = 'Error'; }
-            // Details indicator
-            let detailsIndicator = '';
-            if (step.details) {
-                detailsIndicator = '<span class="planning-step__details-indicator" title="Has details">🛈</span>';
-            }
-            // Step number
-            const stepNumber = `<span class="planning-step__number">${idx + 1}.</span>`;
-            stepDiv.innerHTML = `${stepNumber} <span class="planning-step__icon">${icon}</span> <span class="planning-step__text">${Utils.escapeHtml(step.text)}</span> <span class="planning-step__status-label">${statusLabel}</span> ${detailsIndicator}`;
-            // Timestamps/duration (optional, if present)
-            if (step.startedAt || step.endedAt) {
-                const tsDiv = document.createElement('div');
-                tsDiv.className = 'planning-step__timestamps';
-                let tsText = '';
-                if (step.startedAt) tsText += `Started: ${new Date(step.startedAt).toLocaleTimeString()} `;
-                if (step.endedAt) tsText += `Ended: ${new Date(step.endedAt).toLocaleTimeString()}`;
-                if (step.startedAt && step.endedAt) {
-                    const duration = Math.round((step.endedAt - step.startedAt) / 1000);
-                    tsText += ` (Duration: ${duration}s)`;
-                }
-                tsDiv.textContent = tsText;
-                stepDiv.appendChild(tsDiv);
-            }
-            // Reasoning/Thinking display
-            if (step.reasoning && step.reasoning.length > 0) {
-                const reasoningDiv = document.createElement('div');
-                reasoningDiv.className = 'planning-step__reasoning';
-                reasoningDiv.innerHTML = `<strong>Reasoning:</strong> ${Utils.escapeHtml(step.reasoning)}`;
-                // Show reasoning by default for current step, otherwise collapsed
-                if (step.status === 'in-progress' || stepDiv.classList.contains('expanded')) {
-                    reasoningDiv.style.display = 'block';
-                } else {
-                    reasoningDiv.style.display = 'none';
-                }
-                stepDiv.appendChild(reasoningDiv);
-            }
-            // Details preview on hover, expand/collapse on click
-            if (step.details) {
-                const detailsDiv = document.createElement('div');
-                detailsDiv.className = 'planning-step__details';
-                detailsDiv.textContent = step.details;
-                if (step.status === 'in-progress' || stepDiv.classList.contains('expanded')) {
-                    detailsDiv.style.display = 'block';
-                } else {
-                    detailsDiv.style.display = 'none';
-                }
-                stepDiv.appendChild(detailsDiv);
-                stepDiv.title = step.details;
-            }
-            // Click/keyboard to expand/collapse
-            stepDiv.onclick = () => {
-                if (step.status !== 'in-progress') {
-                    stepDiv.classList.toggle('expanded');
-                    const reasoning = stepDiv.querySelector('.planning-step__reasoning');
-                    if (reasoning) reasoning.style.display = stepDiv.classList.contains('expanded') ? 'block' : 'none';
-                    const details = stepDiv.querySelector('.planning-step__details');
-                    if (details) details.style.display = stepDiv.classList.contains('expanded') ? 'block' : 'none';
-                    stepDiv.setAttribute('aria-expanded', stepDiv.classList.contains('expanded'));
-                }
-            };
-            stepDiv.onkeydown = (e) => {
-                if ((e.key === 'Enter' || e.key === ' ') && step.status !== 'in-progress') {
-                    stepDiv.click();
-                }
-            };
-            // Animate current step
-            if (step.status === 'in-progress') {
-                stepDiv.style.boxShadow = '0 0 12px 2px #ffd70088';
-                stepDiv.style.transform = 'scale(1.04)';
-                stepDiv.style.background = 'linear-gradient(90deg, #fffbe6 80%, #fff7c2 100%)';
-                stepDiv.style.transition = 'all 0.3s';
-            }
-            bar.appendChild(stepDiv);
-        });
-        // Plan summary
-        const allDone = planSteps.every(s => s.status === 'done');
-        const anyError = planSteps.some(s => s.status === 'error');
-        const summaryDiv = document.createElement('div');
-        summaryDiv.className = 'planning-bar__summary';
-        if (allDone) {
-            summaryDiv.innerHTML = '<span class="planning-bar__summary--done">Plan complete! 🎉</span>';
-        } else if (anyError) {
-            const firstErrorIdx = planSteps.findIndex(s => s.status === 'error');
-            summaryDiv.innerHTML = `<span class="planning-bar__summary--error">Plan failed at step ${firstErrorIdx + 1}.</span>`;
-        } else {
-            summaryDiv.innerHTML = `<span class="planning-bar__summary--progress">${doneCount} of ${planSteps.length} steps done.</span>`;
-        }
-        bar.appendChild(summaryDiv);
-    }
-    function updatePlanningBar(planSteps) {
-        renderPlanningBar(planSteps);
-    }
-    function hidePlanningBar() {
-        const bar = document.getElementById('planning-bar');
-        if (bar) bar.style.display = 'none';
-    }
-
-    // Helper: Show animated thinking indicator in chat
-    function showThinkingIndicator() {
-        let chatWindow = document.getElementById('chat-window');
-        if (!chatWindow) return;
-        // Remove any existing indicator
-        let existing = document.getElementById('thinking-indicator');
-        if (existing) existing.remove();
-        // Create spinner/dots
-        const indicator = document.createElement('div');
-        indicator.id = 'thinking-indicator';
-        indicator.className = 'thinking-indicator';
-        indicator.innerHTML = '<span class="spinner"></span> <span>Thinking...</span>';
-        chatWindow.appendChild(indicator);
-        autoScrollToBottom();
-    }
-    // Helper: Remove thinking indicator
-    function hideThinkingIndicator() {
-        let existing = document.getElementById('thinking-indicator');
-        if (existing) existing.remove();
-    }
-    // Helper: Auto-scroll to bottom if user is at bottom
-    function autoScrollToBottom() {
-        const chatWindow = document.getElementById('chat-window');
-        if (!chatWindow) return;
-        // Only scroll if user is near the bottom
-        const threshold = 80;
-        const atBottom = chatWindow.scrollHeight - chatWindow.scrollTop - chatWindow.clientHeight < threshold;
-        if (atBottom) {
-            chatWindow.scrollTop = chatWindow.scrollHeight;
-        }
-    }
-    // Patch addMessage to auto-scroll and handle thinking indicator
-    const originalAddMessage = addMessage;
-    addMessage = function(sender, text, type) {
-        hideThinkingIndicator();
-        originalAddMessage.apply(this, arguments);
-        autoScrollToBottom();
-    };
-
     // Public API
-    const api = Utils.debugWrapAll({
+    return {
         init,
         setupEventHandlers,
         addMessage,
@@ -798,25 +614,25 @@ const UIController = (function() {
         clearStatusUnderToken,
         showSpinnerUnderToken,
         hideSpinnerUnderToken,
+        /**
+         * Adds a chat bubble with raw HTML content (for tool results)
+         * @param {string} sender - 'user' or 'ai'
+         * @param {string} html - HTML string for the bubble content
+         * @returns {Element} - The created message element
+         */
+        addHtmlMessage(sender, html) {
+            const chatWindow = document.getElementById('chat-window');
+            const messageElement = Utils.createFromTemplate('message-template');
+            messageElement.classList.add(`${sender}-message`);
+            const contentElement = messageElement.querySelector('.chat-app__message-content');
+            contentElement.innerHTML = html;
+            chatWindow.appendChild(messageElement);
+            messageElement.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            return messageElement;
+        },
         showError,
         showEmptyState,
         hideEmptyState,
         enableMessageInput,
-        disableMessageInput,
-        renderPlanningBar,
-        updatePlanningBar,
-        hidePlanningBar,
-    }, 'UI');
-
-    // Export to global scope before adding extra properties
-    if (typeof window !== 'undefined') {
-        window.UIController = api;
-        // Defensive: only assign properties if UIController is defined
-        if (window.UIController) {
-            window.UIController.showThinkingIndicator = showThinkingIndicator;
-            window.UIController.hideThinkingIndicator = hideThinkingIndicator;
-            window.UIController.autoScrollToBottom = autoScrollToBottom;
-        }
-    }
-    return api;
+    };
 })(); 

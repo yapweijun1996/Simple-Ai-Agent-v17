@@ -318,12 +318,12 @@ const ApiService = (function() {
     }
 
     // Public API
-    return Utils.debugWrapAll({
+    return {
         init,
         sendOpenAIRequest,
         streamOpenAIRequest,
         createGeminiSession,
         streamGeminiRequest,
         getTokenUsage
-    }, 'API');
+    };
 })(); 
