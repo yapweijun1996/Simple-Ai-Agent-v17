@@ -22,10 +22,37 @@ class ExecutionAgent {
    */
   async executePlan(plan, narrateFn = null) {
     const results = [];
+    let webSearchResults = null;
     let i = 0;
     while (i < plan.length) {
       const step = plan[i];
       if (this.debug) console.log('[ExecutionAgent-DEBUG] Executing step:', step);
+      // Fill in read_url step URLs dynamically from web_search results
+      if (step.tool === 'read_url' && step.arguments.url === '<<TO_BE_FILLED_BY_EXECUTOR>>') {
+        if (Array.isArray(webSearchResults)) {
+          // Find the index of this read_url step among all read_url steps
+          const readUrlSteps = plan.filter(s => s.tool === 'read_url');
+          const thisReadUrlIndex = readUrlSteps.indexOf(step);
+          if (webSearchResults[thisReadUrlIndex]) {
+            step.arguments.url = webSearchResults[thisReadUrlIndex].url;
+            if (this.debug) console.log(`[ExecutionAgent-DEBUG] Filled read_url step #${thisReadUrlIndex + 1} with URL:`, step.arguments.url);
+          } else {
+            if (this.debug) console.warn(`[ExecutionAgent-DEBUG] No web search result for read_url step #${thisReadUrlIndex + 1}, skipping step.`);
+            if (typeof narrateFn === 'function') {
+              await narrateFn(`Skipping read_url step #${thisReadUrlIndex + 1}: No corresponding web search result.`);
+            }
+            i++;
+            continue;
+          }
+        } else {
+          if (this.debug) console.warn('[ExecutionAgent-DEBUG] No web search results available to fill read_url step, skipping.');
+          if (typeof narrateFn === 'function') {
+            await narrateFn('Skipping read_url step: No web search results available.');
+          }
+          i++;
+          continue;
+        }
+      }
       // Narrate the action
       if (typeof narrateFn === 'function') {
         await narrateFn(`Step ${step.step}: ${step.description}`);
@@ -50,6 +77,10 @@ class ExecutionAgent {
         if (this.debug) console.log('[ExecutionAgent-DEBUG] Result for step', step.step, ':', result);
         if (typeof narrateFn === 'function') {
           await narrateFn(`Result: ${JSON.stringify(result)}`);
+        }
+        // Store web_search results for dynamic URL filling
+        if (step.tool === 'web_search' && Array.isArray(result)) {
+          webSearchResults = result;
         }
         // Fallback: If web_search returns empty, run instant_answer
         if (step.tool === 'web_search' && Array.isArray(result) && result.length === 0) {
