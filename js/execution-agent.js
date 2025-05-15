@@ -22,7 +22,9 @@ class ExecutionAgent {
    */
   async executePlan(plan, narrateFn = null) {
     const results = [];
-    for (const step of plan) {
+    let i = 0;
+    while (i < plan.length) {
+      const step = plan[i];
       if (this.debug) console.log('[ExecutionAgent-DEBUG] Executing step:', step);
       // Narrate the action
       if (typeof narrateFn === 'function') {
@@ -37,6 +39,7 @@ class ExecutionAgent {
           await narrateFn(errorMsg);
         }
         results.push({ step: step.step, error: errorMsg });
+        i++;
         continue;
       }
       // Execute the tool
@@ -48,6 +51,21 @@ class ExecutionAgent {
         if (typeof narrateFn === 'function') {
           await narrateFn(`Result: ${JSON.stringify(result)}`);
         }
+        // Fallback: If web_search returns empty, run instant_answer
+        if (step.tool === 'web_search' && Array.isArray(result) && result.length === 0) {
+          // Only add instant_answer if not already in the plan
+          const alreadyHasInstant = plan.some(s => s.tool === 'instant_answer');
+          if (!alreadyHasInstant) {
+            const instantStep = {
+              step: step.step + 1,
+              description: `Fallback: Get instant answer for "${step.arguments.query}"`,
+              tool: 'instant_answer',
+              arguments: { query: step.arguments.query }
+            };
+            if (this.debug) console.log('[ExecutionAgent-DEBUG] Adding fallback instant_answer step:', instantStep);
+            plan.splice(i + 1, 0, instantStep);
+          }
+        }
       } catch (err) {
         const errorMsg = `Error in step ${step.step}: ${err.message}`;
         if (this.debug) console.error('[ExecutionAgent-DEBUG] ' + errorMsg, err);
@@ -57,6 +75,7 @@ class ExecutionAgent {
         results.push({ step: step.step, error: errorMsg });
         break; // Stop execution on error (or could continue)
       }
+      i++;
     }
     if (this.debug) console.log('[ExecutionAgent-DEBUG] All step results:', results);
     return results;

@@ -46,12 +46,14 @@ class PlanningAgent {
           arguments: { prompt: userQuery }
         });
       } else {
+        // Default: Try web_search first for all other queries
         plan.push({
           step: 1,
-          description: `Analyze and answer: "${userQuery}"`,
-          tool: 'instant_answer',
+          description: `Search for information about: "${userQuery}"`,
+          tool: 'web_search',
           arguments: { query: userQuery }
         });
+        // Do not add instant_answer here; fallback will be handled by ExecutionAgent
       }
       if (this.debug) console.log('[PlanningAgent-DEBUG] Generated plan:', JSON.stringify(plan, null, 2));
       return plan;
