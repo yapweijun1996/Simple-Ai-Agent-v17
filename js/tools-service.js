@@ -5,6 +5,20 @@
 const ToolsService = (function() {
     'use strict';
 
+    // Agent-driven modules
+    let ContentExtractionAgent, FallbackExtractionAgent, SearchEngineAgent, ProxySelectionAgent;
+    try {
+      ({ ContentExtractionAgent } = require('./content-extraction-agent.js'));
+      ({ FallbackExtractionAgent } = require('./fallback-extraction-agent.js'));
+      ({ SearchEngineAgent } = require('./search-engine-agent.js'));
+      ({ ProxySelectionAgent } = require('./proxy-selection-agent.js'));
+    } catch (e) {
+      ContentExtractionAgent = window.ContentExtractionAgent;
+      FallbackExtractionAgent = window.FallbackExtractionAgent;
+      SearchEngineAgent = window.SearchEngineAgent;
+      ProxySelectionAgent = window.ProxySelectionAgent;
+    }
+
     // Proxy list for bypassing CORS
     // Each object contains:
     //   - name: Unique identifier
@@ -66,9 +80,10 @@ const ToolsService = (function() {
      * @param {string} [engine] - Search engine: 'duckduckgo', 'google', or 'bing'
      * @returns {Promise<Array<{title:string,url:string,snippet:string}>>}
      */
-    async function webSearch(query, onResult, engine = 'duckduckgo') {
-      // Only DuckDuckGo is supported now
-      const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    async function webSearch(query, onResult /*, engine */) {
+      // Agent chooses search engine
+      const engineKey = SearchEngineAgent.chooseEngine(query);
+      const searchUrl = SearchEngineAgent.buildSearchUrl(engineKey, query);
       const parseResults = function(htmlString) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlString, 'text/html');
@@ -132,8 +147,8 @@ const ToolsService = (function() {
           const doc = parser.parseFromString(htmlString, 'text/html');
           // Remove <script> and <style> elements
           doc.querySelectorAll('script, style').forEach(el => el.remove());
-          // Extract text only from p, h1, h2, and h3 tags
-          const selectors = ['p', 'h1', 'h2', 'h3'];
+          // Dynamic content selectors
+          const selectors = ContentExtractionAgent.getSelectors(doc, url);
           const texts = [];
           selectors.forEach(tag => {
             doc.querySelectorAll(tag).forEach(el => {
@@ -145,10 +160,15 @@ const ToolsService = (function() {
           if (resultText) {
             return resultText;
           }
-          // Fallback: extract full body text if no paragraphs or headings found
-          const bodyText = doc.body && doc.body.textContent ? doc.body.textContent.trim() : '';
-          if (bodyText) {
-            return bodyText;
+          // Agent-driven fallback strategies
+          const strategies = FallbackExtractionAgent.getStrategies(doc, url);
+          for (const strat of strategies) {
+            try {
+              const txt = strat();
+              if (txt) return txt;
+            } catch (err) {
+              toolsDebugLog('Fallback strategy error:', err);
+            }
           }
         } catch (err) {
           toolsDebugLog(`Proxy ${proxy.name} failed: ${err.message}`);

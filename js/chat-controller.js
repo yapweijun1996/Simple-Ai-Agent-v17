@@ -230,9 +230,13 @@ Begin Reasoning Now:
     try {
         ({ PlanningAgent } = require('./planning-agent.js'));
         ({ ExecutionAgent } = require('./execution-agent.js'));
+        // Import dynamic instruction builder
+        var InstructionAgent;
+        ({ InstructionAgent } = require('./instruction-agent.js'));
     } catch (e) {
         PlanningAgent = window.PlanningAgent;
         ExecutionAgent = window.ExecutionAgent;
+        InstructionAgent = window.InstructionAgent;
     }
 
     /**
@@ -240,38 +244,11 @@ Begin Reasoning Now:
      * @param {Object} initialSettings - Initial settings for the chat
      */
     function init(initialSettings) {
-        // Reset and seed chatHistory with system tool instructions
+        // Seed chatHistory with dynamic system prompt
+        const toolNames = Object.keys(toolHandlers);
         state.chatHistory = [{
             role: 'system',
-            content: `You are an AI assistant with access to three external tools. You MUST use these tools to answer any question that requires up-to-date facts, statistics, or detailed content. Do NOT attempt to answer such questions from your own knowledge. The tools are:
-
-1. web_search(query) → returns a JSON array of search results [{title, url, snippet}, …]
-2. read_url(url[, start, length]) → returns the text content of a web page from position 'start' (default 0) up to 'length' characters (default 1122)
-3. instant_answer(query) → returns a JSON object from DuckDuckGo's Instant Answer API for quick facts, definitions, and summaries (no proxies needed)
-
-**INSTRUCTIONS:**
-- If you need information from the web, you MUST output a tool call as a single JSON object, and NOTHING else. Do NOT include any explanation, markdown, or extra text.
-- After receiving a tool result, reason step by step (Chain of Thought) and decide if you need to call another tool. If so, output another tool call JSON. Only provide your final answer after all necessary tool calls are complete.
-- If you need to read a web page, use read_url. If the snippet ends with an ellipsis ("..."), always determine if fetching more text will improve your answer. If so, output another read_url tool call with the same url, start at your previous offset, and length set to 5000. Repeat until you have enough content.
-- If you do NOT know the answer, or are unsure, ALWAYS call a tool first.
-- When calling a tool, output EXACTLY a JSON object and nothing else, in this format:
-  {"tool":"web_search","arguments":{"query":"your query"}}
-  {"tool":"read_url","arguments":{"url":"https://example.com","start":0,"length":1122}}
-  {"tool":"instant_answer","arguments":{"query":"your query"}}
-- Do NOT output any other text, markdown, or explanation with the tool call JSON.
-- After receiving the tool result, continue reasoning step by step and then provide your answer.
-
-**EXAMPLES:**
-Q: What is the latest news about OpenAI?
-A: {"tool":"web_search","arguments":{"query":"latest news about OpenAI"}}
-
-Q: Read the content of https://example.com and summarize it.
-A: {"tool":"read_url","arguments":{"url":"https://example.com","start":0,"length":1122}}
-
-Q: What is the capital of France?
-A: {"tool":"instant_answer","arguments":{"query":"capital of France"}}
-
-If you understand, follow these instructions for every relevant question. Do NOT answer from your own knowledge if a tool call is needed. Wait for the tool result before continuing.`,
+            content: InstructionAgent.buildSystemPrompt(toolNames)
         }];
         if (initialSettings) {
             state.settings = { ...state.settings, ...initialSettings };
