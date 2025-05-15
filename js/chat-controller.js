@@ -93,7 +93,7 @@ Begin Reasoning Now:
             debugLog('Tool: web_search', args);
             if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
                 UIController.addMessage('ai', 'Error: Invalid web_search query.');
-                return;
+                return null;
             }
             const engine = args.engine || 'duckduckgo';
             const userQuestion = state.originalUserQuestion || args.query;
@@ -187,12 +187,13 @@ Begin Reasoning Now:
             debugLog({ step: 'suggestResultsToRead', results: uniqueResults });
             // Prompt AI to suggest which results to read
             await suggestResultsToRead(uniqueResults, args.query);
+            return uniqueResults;
         },
         read_url: async function(args) {
             debugLog('Tool: read_url', args);
             if (!args.url || typeof args.url !== 'string' || !/^https?:\/\//.test(args.url)) {
                 UIController.addMessage('ai', 'Error: Invalid read_url argument.');
-                return;
+                return null;
             }
             UIController.showSpinner(`Reading content from ${args.url}...`, getAgentDetails());
             UIController.showStatus(`Reading content from ${args.url}...`, getAgentDetails());
@@ -205,22 +206,23 @@ Begin Reasoning Now:
                 UIController.addReadResult(args.url, snippet, hasMore);
                 const plainTextSnippet = `Read content from ${args.url}:\n${snippet}${hasMore ? '...' : ''}`;
                 state.chatHistory.push({ role: 'assistant', content: plainTextSnippet });
-                // Collect snippets for summarization
                 state.readSnippets.push(snippet);
-                // (Manual summarization removed: summarization now only happens in auto-read workflow)
+                UIController.hideSpinner();
+                UIController.clearStatus();
+                return { url: args.url, snippet, hasMore };
             } catch (err) {
                 UIController.hideSpinner();
                 UIController.addMessage('ai', `Read URL failed: ${err.message}`);
                 state.chatHistory.push({ role: 'assistant', content: `Read URL failed: ${err.message}` });
+                UIController.clearStatus();
+                return { error: err.message };
             }
-            UIController.hideSpinner();
-            UIController.clearStatus();
         },
         instant_answer: async function(args) {
             debugLog('Tool: instant_answer', args);
             if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
                 UIController.addMessage('ai', 'Error: Invalid instant_answer query.');
-                return;
+                return null;
             }
             UIController.showStatus(`Retrieving instant answer for "${args.query}"...`, getAgentDetails());
             try {
@@ -228,12 +230,14 @@ Begin Reasoning Now:
                 const text = JSON.stringify(result, null, 2);
                 UIController.addMessage('ai', text);
                 state.chatHistory.push({ role: 'assistant', content: text });
+                UIController.clearStatus();
+                return result;
             } catch (err) {
                 UIController.clearStatus();
                 UIController.addMessage('ai', `Instant answer failed: ${err.message}`);
                 state.chatHistory.push({ role: 'assistant', content: `Instant answer failed: ${err.message}` });
+                return { error: err.message };
             }
-            UIController.clearStatus();
         }
     };
 
