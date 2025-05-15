@@ -224,6 +224,7 @@ class ExecutionAgent {
         if (step.tool === 'summarize') {
           step.arguments.snippets = collectedSnippets.slice();
           if (this.debug) console.log('[ExecutionAgent-DEBUG] Passing collected snippets to summarize step:', collectedSnippets);
+          await this.summarizeAndSynthesize(collectedSnippets.slice(), plan[0]?.arguments?.query || '', narrateFn);
         }
       } catch (err) {
         const errorMsg = `Error in step ${step.step}: ${err.message}`;
@@ -238,6 +239,174 @@ class ExecutionAgent {
     }
     if (this.debug) console.log('[ExecutionAgent-DEBUG] All step results:', results);
     return results;
+  }
+
+  /**
+   * Recursively summarizes snippets and synthesizes a final answer.
+   * @param {Array<string>} snippets - The content snippets to summarize.
+   * @param {string} userQuery - The original user question.
+   * @param {Function} narrateFn - Narration callback.
+   * @param {number} round - Recursion round.
+   */
+  async summarizeAndSynthesize(snippets, userQuery, narrateFn, round = 1) {
+    if (!snippets || !snippets.length) return;
+    const selectedModel = (typeof SettingsController !== 'undefined' && SettingsController.getSettings) ? SettingsController.getSettings().selectedModel : 'gpt-4.1-mini';
+    const MAX_PROMPT_LENGTH = 5857;
+    const SUMMARIZATION_TIMEOUT = 88000;
+    // Helper to split into batches
+    function splitIntoBatches(snips, maxLen) {
+      const batches = [];
+      let current = [];
+      let currentLen = 0;
+      for (const s of snips) {
+        if (currentLen + s.length > maxLen && current.length) {
+          batches.push(current);
+          current = [];
+          currentLen = 0;
+        }
+        current.push(s);
+        currentLen += s.length;
+      }
+      if (current.length) batches.push(current);
+      return batches;
+    }
+    // If only one snippet, summarize directly
+    if (snippets.length === 1) {
+      const prompt = `Summarize the following information extracted from web pages (be as concise as possible):\n\n${snippets[0]}`;
+      let aiReply = '';
+      if (this.debug) console.log(`[ExecutionAgent-DEBUG] [Summarize] Round ${round}: Summarizing single snippet...`);
+      if (typeof narrateFn === 'function') await narrateFn(`Round ${round}: Summarizing information...`);
+      try {
+        if (selectedModel.startsWith('gpt')) {
+          if (typeof ApiService !== 'undefined' && ApiService.sendOpenAIRequest) {
+            const res = await ApiService.sendOpenAIRequest(selectedModel, [
+              { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+              { role: 'user', content: prompt }
+            ], SUMMARIZATION_TIMEOUT);
+            aiReply = res.choices[0].message.content.trim();
+          }
+        } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
+          if (typeof ApiService !== 'undefined' && ApiService.createGeminiSession) {
+            const session = ApiService.createGeminiSession(selectedModel);
+            const chatHistory = [
+              { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+              { role: 'user', content: prompt }
+            ];
+            const result = await session.sendMessage(prompt, chatHistory);
+            const candidate = result.candidates[0];
+            if (candidate.content.parts) {
+              aiReply = candidate.content.parts.map(p => p.text).join(' ').trim();
+            } else if (candidate.content.text) {
+              aiReply = candidate.content.text.trim();
+            }
+          }
+        }
+        if (aiReply && typeof narrateFn === 'function') {
+          await narrateFn(`Summary:\n${aiReply}`);
+        }
+      } catch (err) {
+        if (typeof narrateFn === 'function') await narrateFn(`Summarization failed. Error: ${err && err.message ? err.message : err}`);
+        return;
+      }
+      // Synthesize final answer
+      await this.synthesizeFinalAnswer(aiReply, userQuery, narrateFn);
+      return;
+    }
+    // Otherwise, split into batches
+    const batches = splitIntoBatches(snippets, MAX_PROMPT_LENGTH);
+    let batchSummaries = [];
+    const totalBatches = batches.length;
+    try {
+      for (let i = 0; i < totalBatches; i++) {
+        const batch = batches[i];
+        if (this.debug) console.log(`[ExecutionAgent-DEBUG] [Summarize] Round ${round}: Summarizing batch ${i + 1} of ${totalBatches}...`);
+        if (typeof narrateFn === 'function') await narrateFn(`Round ${round}: Summarizing batch ${i + 1} of ${totalBatches}...`);
+        const batchPrompt = `Summarize the following information extracted from web pages (be as concise as possible):\n\n${batch.join('\n---\n')}`;
+        let batchReply = '';
+        if (selectedModel.startsWith('gpt')) {
+          if (typeof ApiService !== 'undefined' && ApiService.sendOpenAIRequest) {
+            const res = await ApiService.sendOpenAIRequest(selectedModel, [
+              { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+              { role: 'user', content: batchPrompt }
+            ], SUMMARIZATION_TIMEOUT);
+            batchReply = res.choices[0].message.content.trim();
+          }
+        } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
+          if (typeof ApiService !== 'undefined' && ApiService.createGeminiSession) {
+            const session = ApiService.createGeminiSession(selectedModel);
+            const chatHistory = [
+              { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources.' },
+              { role: 'user', content: batchPrompt }
+            ];
+            const result = await session.sendMessage(batchPrompt, chatHistory);
+            const candidate = result.candidates[0];
+            if (candidate.content.parts) {
+              batchReply = candidate.content.parts.map(p => p.text).join(' ').trim();
+            } else if (candidate.content.text) {
+              batchReply = candidate.content.text.trim();
+            }
+          }
+        }
+        batchSummaries.push(batchReply);
+      }
+      // If the combined summaries are still too long, recursively summarize
+      const combined = batchSummaries.join('\n---\n');
+      if (combined.length > MAX_PROMPT_LENGTH) {
+        if (this.debug) console.log(`[ExecutionAgent-DEBUG] [Summarize] Round ${round + 1}: Combining summaries...`);
+        if (typeof narrateFn === 'function') await narrateFn(`Round ${round + 1}: Combining summaries...`);
+        await this.summarizeAndSynthesize(batchSummaries, userQuery, narrateFn, round + 1);
+      } else {
+        if (typeof narrateFn === 'function') await narrateFn(`Round ${round}: Finalizing summary...`);
+        if (typeof narrateFn === 'function') await narrateFn(`Summary:\n${combined}`);
+        await this.synthesizeFinalAnswer(combined, userQuery, narrateFn);
+      }
+    } catch (err) {
+      if (typeof narrateFn === 'function') await narrateFn(`Summarization failed. Error: ${err && err.message ? err.message : err}`);
+    }
+  }
+
+  /**
+   * Synthesizes a final answer from summaries and the original question.
+   * @param {string} summaries - The summaries to synthesize from.
+   * @param {string} userQuery - The original user question.
+   * @param {Function} narrateFn - Narration callback.
+   */
+  async synthesizeFinalAnswer(summaries, userQuery, narrateFn) {
+    if (!summaries || !userQuery) return;
+    const selectedModel = (typeof SettingsController !== 'undefined' && SettingsController.getSettings) ? SettingsController.getSettings().selectedModel : 'gpt-4.1-mini';
+    const prompt = `Based on the following summaries, provide a final, concise answer to the original question.\n\nSummaries:\n${summaries}\n\nOriginal question: ${userQuery}`;
+    let finalAnswer = '';
+    try {
+      if (selectedModel.startsWith('gpt')) {
+        if (typeof ApiService !== 'undefined' && ApiService.sendOpenAIRequest) {
+          const res = await ApiService.sendOpenAIRequest(selectedModel, [
+            { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources and provides a final answer.' },
+            { role: 'user', content: prompt }
+          ]);
+          finalAnswer = res.choices[0].message.content.trim();
+        }
+      } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
+        if (typeof ApiService !== 'undefined' && ApiService.createGeminiSession) {
+          const session = ApiService.createGeminiSession(selectedModel);
+          const chatHistory = [
+            { role: 'system', content: 'You are an assistant that synthesizes information from multiple sources and provides a final answer.' },
+            { role: 'user', content: prompt }
+          ];
+          const result = await session.sendMessage(prompt, chatHistory);
+          const candidate = result.candidates[0];
+          if (candidate.content.parts) {
+            finalAnswer = candidate.content.parts.map(p => p.text).join(' ').trim();
+          } else if (candidate.content.text) {
+            finalAnswer = candidate.content.text.trim();
+          }
+        }
+      }
+      if (finalAnswer && typeof narrateFn === 'function') {
+        await narrateFn(`Final Answer:\n${finalAnswer}`);
+      }
+    } catch (err) {
+      if (typeof narrateFn === 'function') await narrateFn(`Final answer synthesis failed. Error: ${err && err.message ? err.message : err}`);
+    }
   }
 }
 
