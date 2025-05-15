@@ -49,6 +49,7 @@ class ExecutionAgent {
       const stepLabel = `Step ${step.step} [${step.tool}]`;
       const stepStart = Date.now();
       console.groupCollapsed(`%c[ExecutionAgent][STEP] ${stepLabel} - ${step.description}`, 'color: #1976d2; font-weight: bold;');
+      this.debugLog('STEP', `[Agent] Entering plan step: ${stepLabel}`, step);
       this.debugLog('STEP', `Executing ${stepLabel}: ${step.description}`);
       this.debugLog('STEP', 'Step arguments:', step.arguments);
       this.debugLog('STEP', 'Plan state before step:', plan);
@@ -62,35 +63,19 @@ class ExecutionAgent {
         this.debugLog('STEP', 'Plan state after step:', plan);
         console.groupEnd();
         i++;
+        this.debugLog('STEP', `[Agent] Exiting plan step: ${stepLabel}`, step);
         continue;
       }
       // Fill in read_url step URLs dynamically from web_search results
       if (step.tool === 'read_url' && step.arguments.url === '<<TO_BE_FILLED_BY_EXECUTOR>>') {
-        if (Array.isArray(webSearchResults)) {
+        if (!Array.isArray(webSearchResults)) {
+          this.debugLog('STEP', '[Agent] Skipping read_url step: No web search results available.', step);
+        } else {
           const readUrlSteps = plan.filter(s => s.tool === 'read_url');
           const thisReadUrlIndex = readUrlSteps.indexOf(step);
-          if (webSearchResults[thisReadUrlIndex]) {
-            step.arguments.url = webSearchResults[thisReadUrlIndex].url;
-            this.debugLog('STEP', `Filled read_url step #${thisReadUrlIndex + 1} with URL: ${step.arguments.url}`);
-          } else {
-            this.debugLog('WARN', `No web search result for read_url step #${thisReadUrlIndex + 1}, skipping step.`);
-            if (typeof narrateFn === 'function') {
-              await narrateFn(`Skipping read_url step #${thisReadUrlIndex + 1}: No corresponding web search result.`);
-            }
-            this.debugLog('STEP', 'Plan state after step:', plan);
-            console.groupEnd();
-            i++;
-            continue;
+          if (!webSearchResults[thisReadUrlIndex]) {
+            this.debugLog('STEP', `[Agent] Skipping read_url step #${thisReadUrlIndex + 1}: No corresponding web search result.`, step);
           }
-        } else {
-          this.debugLog('WARN', 'No web search results available to fill read_url step, skipping.');
-          if (typeof narrateFn === 'function') {
-            await narrateFn('Skipping read_url step: No web search results available.');
-          }
-          this.debugLog('STEP', 'Plan state after step:', plan);
-          console.groupEnd();
-          i++;
-          continue;
         }
       }
       if (typeof narrateFn === 'function') {
@@ -106,10 +91,11 @@ class ExecutionAgent {
         this.debugLog('STEP', 'Plan state after step:', plan);
         console.groupEnd();
         i++;
+        this.debugLog('STEP', `[Agent] Exiting plan step: ${stepLabel}`, step);
         continue;
       }
       try {
-        this.debugLog('STEP', `Calling tool: ${step.tool} with args:`, step.arguments);
+        this.debugLog('STEP', `[Agent] Tool handler called: ${step.tool}`, step.arguments);
         if (step.tool === 'read_url') {
           let snippet = '';
           let url = step.arguments.url;
@@ -199,10 +185,11 @@ class ExecutionAgent {
             }
           }
           if (step.tool === 'web_search' && Array.isArray(result)) {
-            // Source Filtering and Deduplication Agents
+            this.debugLog('STEP', '[Agent] SourceFilteringAgent: Filtering web search results...', result);
             webSearchResults = filterRelevantResults(result, step.arguments.query);
+            this.debugLog('STEP', '[Agent] DeduplicationAgent: Deduplicating web search results...', webSearchResults);
             webSearchResults = deduplicateResults(webSearchResults);
-            this.debugLog('STEP', 'Filtered and deduplicated web search results:', webSearchResults);
+            this.debugLog('STEP', '[Agent] Filtered and deduplicated web search results:', webSearchResults);
             // --- AI-driven selection of which results to read ---
             if (webSearchResults.length > 0) {
               const prompt = `Given these search results for the query: "${step.arguments.query}", which results (by number) are most relevant to read in detail?\n\n${webSearchResults.map((r, idx) => `${idx+1}. ${r.title} - ${r.snippet}`).join('\n')}\n\nReply with a comma-separated list of result numbers.`;
@@ -277,7 +264,7 @@ class ExecutionAgent {
           }
         }
       } catch (err) {
-        this.debugLog('ERROR', `Error in step ${step.step}: ${err.message}`, err && err.stack ? err.stack : err);
+        this.debugLog('ERROR', `[Agent] Error in step ${step.step}: ${err.message}`, err && err.stack ? err.stack : err);
         if (typeof narrateFn === 'function') {
           await narrateFn(`Error in step ${step.step}: ${err.message}`);
         }
@@ -291,6 +278,7 @@ class ExecutionAgent {
       this.debugLog('STEP', 'Plan state after step:', plan);
       console.groupEnd();
       i++;
+      this.debugLog('STEP', `[Agent] Exiting plan step: ${stepLabel}`, step);
     }
     const planEnd = Date.now();
     this.debugLog('STEP', `--- PLAN EXECUTION END --- (${planEnd - planStart}ms)`);
@@ -423,6 +411,7 @@ class ExecutionAgent {
       this.debugLog('ERROR', 'Summarization failed.', err && err.stack ? err.stack : err);
       if (typeof narrateFn === 'function') await narrateFn(`Summarization failed. Error: ${err && err.message ? err.message : err}`);
     }
+    this.debugLog('STEP', '[Agent] Summarization complete. Combined summary length:', combined.length);
   }
 
   /**
@@ -467,6 +456,7 @@ class ExecutionAgent {
         await narrateFn(`Final Answer:\n${finalAnswer}`);
       }
       if (!isAnswerRelevant(finalAnswer, userQuery)) {
+        this.debugLog('STEP', '[Agent] CriticAgent: Final answer flagged as too generic or not relevant.', finalAnswer);
         if (typeof narrateFn === 'function') {
           await narrateFn('The answer may be too generic or not relevant. Please try to be more specific in your query.');
         }
