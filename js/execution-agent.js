@@ -14,6 +14,21 @@ class ExecutionAgent {
     this.debug = !!debug;
   }
 
+  // Helper for structured debug logging
+  debugLog(level, msg, obj = null, style = '') {
+    if (!this.debug) return;
+    const base = `%c[ExecutionAgent][${level}]`;
+    const color = level === 'ERROR' ? 'color: #d32f2f; font-weight: bold;' :
+                 level === 'WARN' ? 'color: #fbc02d; font-weight: bold;' :
+                 level === 'STEP' ? 'color: #1976d2; font-weight: bold;' :
+                 'color: #333;';
+    if (obj) {
+      console.log(base + ' ' + msg, color + (style || ''), obj);
+    } else {
+      console.log(base + ' ' + msg, color + (style || ''));
+    }
+  }
+
   /**
    * Executes a plan step by step.
    * @param {Array} plan - Array of plan steps.
@@ -27,12 +42,18 @@ class ExecutionAgent {
     let i = 0;
     while (i < plan.length) {
       const step = plan[i];
-      if (this.debug) console.log('[ExecutionAgent-DEBUG] Executing step:', step);
+      const stepLabel = `Step ${step.step} [${step.tool}]`;
+      const stepStart = Date.now();
+      console.groupCollapsed(`%c[ExecutionAgent][STEP] ${stepLabel} - ${step.description}`, 'color: #1976d2; font-weight: bold;');
+      this.debugLog('STEP', `Executing ${stepLabel}: ${step.description}`, step.arguments);
       // Handle summarize step internally BEFORE tool handler lookup
       if (step.tool === 'summarize') {
         step.arguments.snippets = collectedSnippets.slice();
-        if (this.debug) console.log('[ExecutionAgent-DEBUG] Passing collected snippets to summarize step:', collectedSnippets);
+        this.debugLog('STEP', `Passing collected snippets to summarize step`, collectedSnippets);
         await this.summarizeAndSynthesize(collectedSnippets.slice(), plan[0]?.arguments?.query || '', narrateFn);
+        const stepEnd = Date.now();
+        this.debugLog('STEP', `Completed ${stepLabel} in ${stepEnd - stepStart}ms`);
+        console.groupEnd();
         i++;
         continue;
       }
@@ -43,44 +64,42 @@ class ExecutionAgent {
           const thisReadUrlIndex = readUrlSteps.indexOf(step);
           if (webSearchResults[thisReadUrlIndex]) {
             step.arguments.url = webSearchResults[thisReadUrlIndex].url;
-            if (this.debug) console.log(`[ExecutionAgent-DEBUG] Filled read_url step #${thisReadUrlIndex + 1} with URL:`, step.arguments.url);
+            this.debugLog('STEP', `Filled read_url step #${thisReadUrlIndex + 1} with URL: ${step.arguments.url}`);
           } else {
-            if (this.debug) console.warn(`[ExecutionAgent-DEBUG] No web search result for read_url step #${thisReadUrlIndex + 1}, skipping step.`);
+            this.debugLog('WARN', `No web search result for read_url step #${thisReadUrlIndex + 1}, skipping step.`);
             if (typeof narrateFn === 'function') {
               await narrateFn(`Skipping read_url step #${thisReadUrlIndex + 1}: No corresponding web search result.`);
             }
+            console.groupEnd();
             i++;
             continue;
           }
         } else {
-          if (this.debug) console.warn('[ExecutionAgent-DEBUG] No web search results available to fill read_url step, skipping.');
+          this.debugLog('WARN', 'No web search results available to fill read_url step, skipping.');
           if (typeof narrateFn === 'function') {
             await narrateFn('Skipping read_url step: No web search results available.');
           }
+          console.groupEnd();
           i++;
           continue;
         }
       }
-      // Narrate the action
       if (typeof narrateFn === 'function') {
         await narrateFn(`Step ${step.step}: ${step.description}`);
       }
-      // Find the tool handler
       const toolFn = this.toolHandlers[step.tool];
       if (!toolFn) {
-        const errorMsg = `Error: Tool handler for "${step.tool}" not found.`;
-        if (this.debug) console.error('[ExecutionAgent-DEBUG] ' + errorMsg);
+        this.debugLog('ERROR', `Tool handler for "${step.tool}" not found.`);
         if (typeof narrateFn === 'function') {
-          await narrateFn(errorMsg);
+          await narrateFn(`Error: Tool handler for "${step.tool}" not found.`);
         }
-        results.push({ step: step.step, error: errorMsg });
+        results.push({ step: step.step, error: `Error: Tool handler for "${step.tool}" not found.` });
+        console.groupEnd();
         i++;
         continue;
       }
-      // Execute the tool
       try {
-        if (this.debug) console.log('[ExecutionAgent-DEBUG] Calling tool:', step.tool, 'with args:', step.arguments);
-        // --- Deep reading for read_url steps ---
+        this.debugLog('STEP', `Calling tool: ${step.tool} with args:`, step.arguments);
         if (step.tool === 'read_url') {
           let snippet = '';
           let url = step.arguments.url;
@@ -125,7 +144,7 @@ class ExecutionAgent {
                 }
               }
             } catch (err) {
-              if (this.debug) console.warn('[ExecutionAgent-DEBUG] Error in deep reading LLM call:', err);
+              this.debugLog('WARN', 'Error in deep reading LLM call:', err);
               shouldContinue = false;
               break;
             }
@@ -139,28 +158,25 @@ class ExecutionAgent {
           }
           collectedSnippets.push(snippet);
           results.push({ step: step.step, result: { url, snippet } });
-          if (this.debug) console.log('[ExecutionAgent-DEBUG] Deep reading complete for', url, 'snippet length:', snippet.length);
+          this.debugLog('STEP', `Deep reading complete for ${url}, snippet length: ${snippet.length}`);
           if (typeof narrateFn === 'function') {
             await narrateFn(`Deep reading complete for ${url}, snippet length: ${snippet.length}`);
           }
         } else {
           const result = await toolFn(step.arguments);
           results.push({ step: step.step, result });
-          if (this.debug) console.log('[ExecutionAgent-DEBUG] Result for step', step.step, ':', result);
+          this.debugLog('STEP', `Result for step ${step.step} :`, result);
           if (typeof narrateFn === 'function') {
             await narrateFn(`Result: ${JSON.stringify(result)}`);
           }
-          // Store web_search results for dynamic URL filling and AI-driven selection
           if (step.tool === 'web_search' && Array.isArray(result)) {
             webSearchResults = result;
             // --- AI-driven selection of which results to read ---
             if (webSearchResults.length > 0) {
-              // Build prompt as in suggestResultsToRead
               const prompt = `Given these search results for the query: "${step.arguments.query}", which results (by number) are most relevant to read in detail?\n\n${webSearchResults.map((r, idx) => `${idx+1}. ${r.title} - ${r.snippet}`).join('\n')}\n\nReply with a comma-separated list of result numbers.`;
               let aiReply = '';
               let selectedIndices = [];
               try {
-                // Use OpenAI or Gemini as in chat-controller.js
                 const selectedModel = (typeof SettingsController !== 'undefined' && SettingsController.getSettings) ? SettingsController.getSettings().selectedModel : 'gpt-4.1-mini';
                 if (selectedModel.startsWith('gpt')) {
                   if (typeof ApiService !== 'undefined' && ApiService.sendOpenAIRequest) {
@@ -186,25 +202,21 @@ class ExecutionAgent {
                     }
                   }
                 }
-                if (this.debug) console.log('[ExecutionAgent-DEBUG] AI reply for result selection:', aiReply);
-                // Parse indices from reply
+                this.debugLog('STEP', `AI reply for result selection: ${aiReply}`);
                 const match = aiReply && aiReply.match(/([\d, ]+)/);
                 if (match) {
                   selectedIndices = match[1].split(',').map(s => parseInt(s.trim(), 10) - 1).filter(n => !isNaN(n) && n >= 0 && n < webSearchResults.length);
                 }
               } catch (err) {
-                if (this.debug) console.warn('[ExecutionAgent-DEBUG] Error in AI-driven result selection:', err);
-                // Fallback: just pick the top N
+                this.debugLog('WARN', 'Error in AI-driven result selection:', err);
                 selectedIndices = [0, 1, 2].filter(idx => idx < webSearchResults.length);
               }
-              // Update read_url steps with selected URLs
               let readUrlStepIdx = 0;
               for (let j = 0; j < plan.length; j++) {
                 if (plan[j].tool === 'read_url') {
                   if (selectedIndices[readUrlStepIdx] !== undefined && webSearchResults[selectedIndices[readUrlStepIdx]]) {
                     plan[j].arguments.url = webSearchResults[selectedIndices[readUrlStepIdx]].url;
                   } else {
-                    // Remove or skip this step if not enough selected
                     plan.splice(j, 1);
                     j--;
                   }
@@ -213,7 +225,6 @@ class ExecutionAgent {
               }
             }
           }
-          // Fallback: If web_search returns empty, run instant_answer
           if (step.tool === 'web_search' && Array.isArray(result) && result.length === 0) {
             const alreadyHasInstant = plan.some(s => s.tool === 'instant_answer');
             if (!alreadyHasInstant) {
@@ -223,23 +234,26 @@ class ExecutionAgent {
                 tool: 'instant_answer',
                 arguments: { query: step.arguments.query }
               };
-              if (this.debug) console.log('[ExecutionAgent-DEBUG] Adding fallback instant_answer step:', instantStep);
+              this.debugLog('STEP', 'Adding fallback instant_answer step:', instantStep);
               plan.splice(i + 1, 0, instantStep);
             }
           }
         }
       } catch (err) {
-        const errorMsg = `Error in step ${step.step}: ${err.message}`;
-        if (this.debug) console.error('[ExecutionAgent-DEBUG] ' + errorMsg, err);
+        this.debugLog('ERROR', `Error in step ${step.step}: ${err.message}`, err);
         if (typeof narrateFn === 'function') {
-          await narrateFn(errorMsg);
+          await narrateFn(`Error in step ${step.step}: ${err.message}`);
         }
-        results.push({ step: step.step, error: errorMsg });
-        break; // Stop execution on error (or could continue)
+        results.push({ step: step.step, error: `Error in step ${step.step}: ${err.message}` });
+        console.groupEnd();
+        break;
       }
+      const stepEnd = Date.now();
+      this.debugLog('STEP', `Completed ${stepLabel} in ${stepEnd - stepStart}ms`);
+      console.groupEnd();
       i++;
     }
-    if (this.debug) console.log('[ExecutionAgent-DEBUG] All step results:', results);
+    this.debugLog('STEP', 'All step results:', results);
     return results;
   }
 
@@ -255,7 +269,6 @@ class ExecutionAgent {
     const selectedModel = (typeof SettingsController !== 'undefined' && SettingsController.getSettings) ? SettingsController.getSettings().selectedModel : 'gpt-4.1-mini';
     const MAX_PROMPT_LENGTH = 5857;
     const SUMMARIZATION_TIMEOUT = 88000;
-    // Helper to split into batches
     function splitIntoBatches(snips, maxLen) {
       const batches = [];
       let current = [];
@@ -272,11 +285,10 @@ class ExecutionAgent {
       if (current.length) batches.push(current);
       return batches;
     }
-    // If only one snippet, summarize directly
     if (snippets.length === 1) {
       const prompt = `Summarize the following information extracted from web pages (be as concise as possible):\n\n${snippets[0]}`;
       let aiReply = '';
-      if (this.debug) console.log(`[ExecutionAgent-DEBUG] [Summarize] Round ${round}: Summarizing single snippet...`);
+      this.debugLog('STEP', `[Summarize] Round ${round}: Summarizing single snippet...`);
       if (typeof narrateFn === 'function') await narrateFn(`Round ${round}: Summarizing information...`);
       try {
         if (selectedModel.startsWith('gpt')) {
@@ -307,21 +319,20 @@ class ExecutionAgent {
           await narrateFn(`Summary:\n${aiReply}`);
         }
       } catch (err) {
+        this.debugLog('ERROR', 'Summarization failed.', err);
         if (typeof narrateFn === 'function') await narrateFn(`Summarization failed. Error: ${err && err.message ? err.message : err}`);
         return;
       }
-      // Synthesize final answer
       await this.synthesizeFinalAnswer(aiReply, userQuery, narrateFn);
       return;
     }
-    // Otherwise, split into batches
     const batches = splitIntoBatches(snippets, MAX_PROMPT_LENGTH);
     let batchSummaries = [];
     const totalBatches = batches.length;
     try {
       for (let i = 0; i < totalBatches; i++) {
         const batch = batches[i];
-        if (this.debug) console.log(`[ExecutionAgent-DEBUG] [Summarize] Round ${round}: Summarizing batch ${i + 1} of ${totalBatches}...`);
+        this.debugLog('STEP', `[Summarize] Round ${round}: Summarizing batch ${i + 1} of ${totalBatches}...`);
         if (typeof narrateFn === 'function') await narrateFn(`Round ${round}: Summarizing batch ${i + 1} of ${totalBatches}...`);
         const batchPrompt = `Summarize the following information extracted from web pages (be as concise as possible):\n\n${batch.join('\n---\n')}`;
         let batchReply = '';
@@ -351,18 +362,19 @@ class ExecutionAgent {
         }
         batchSummaries.push(batchReply);
       }
-      // If the combined summaries are still too long, recursively summarize
       const combined = batchSummaries.join('\n---\n');
       if (combined.length > MAX_PROMPT_LENGTH) {
-        if (this.debug) console.log(`[ExecutionAgent-DEBUG] [Summarize] Round ${round + 1}: Combining summaries...`);
+        this.debugLog('STEP', `[Summarize] Round ${round + 1}: Combining summaries...`);
         if (typeof narrateFn === 'function') await narrateFn(`Round ${round + 1}: Combining summaries...`);
         await this.summarizeAndSynthesize(batchSummaries, userQuery, narrateFn, round + 1);
       } else {
+        this.debugLog('STEP', `[Summarize] Round ${round}: Finalizing summary...`);
         if (typeof narrateFn === 'function') await narrateFn(`Round ${round}: Finalizing summary...`);
         if (typeof narrateFn === 'function') await narrateFn(`Summary:\n${combined}`);
         await this.synthesizeFinalAnswer(combined, userQuery, narrateFn);
       }
     } catch (err) {
+      this.debugLog('ERROR', 'Summarization failed.', err);
       if (typeof narrateFn === 'function') await narrateFn(`Summarization failed. Error: ${err && err.message ? err.message : err}`);
     }
   }
@@ -403,10 +415,12 @@ class ExecutionAgent {
           }
         }
       }
+      this.debugLog('STEP', '[Synthesize] Final answer:', finalAnswer);
       if (finalAnswer && typeof narrateFn === 'function') {
         await narrateFn(`Final Answer:\n${finalAnswer}`);
       }
     } catch (err) {
+      this.debugLog('ERROR', 'Final answer synthesis failed.', err);
       if (typeof narrateFn === 'function') await narrateFn(`Final answer synthesis failed. Error: ${err && err.message ? err.message : err}`);
     }
   }
