@@ -19,58 +19,34 @@ class PlanningAgent {
     if (this.debug) console.log('[PlanningAgent-DEBUG] createPlan input:', userQuery);
     const plan = [];
     try {
-      if (/search|find|look up|what is|news|info/i.test(userQuery)) {
+      // Use SearchTermGeneratorAgent for smarter search terms
+      const searchTerms = (typeof SearchTermGeneratorAgent !== 'undefined' && SearchTermGeneratorAgent.generateSearchTerms)
+        ? SearchTermGeneratorAgent.generateSearchTerms(userQuery)
+        : [userQuery];
+      let stepNum = 1;
+      for (const term of searchTerms) {
         plan.push({
-          step: 1,
-          description: `Search for information about: "${userQuery}"`,
+          step: stepNum++,
+          description: `Search for information about: "${term}"`,
           tool: 'web_search',
-          arguments: { query: userQuery }
-        });
-        // Read top 3 results (placeholders for URLs)
-        for (let i = 0; i < 3; i++) {
-          plan.push({
-            step: 2 + i,
-            description: `Read content from top result #${i + 1}`,
-            tool: 'read_url',
-            arguments: { url: '<<TO_BE_FILLED_BY_EXECUTOR>>' }
-          });
-        }
-        plan.push({
-          step: 5,
-          description: 'Summarize the findings from all read results',
-          tool: 'summarize',
-          arguments: { snippets: [] }
-        });
-      } else if (/code|implement|example|write|fix/i.test(userQuery)) {
-        plan.push({
-          step: 1,
-          description: `Generate code for: "${userQuery}"`,
-          tool: 'code_generation',
-          arguments: { prompt: userQuery }
-        });
-      } else {
-        // Default: Multi-step plan for general queries
-        plan.push({
-          step: 1,
-          description: `Search for information about: "${userQuery}"`,
-          tool: 'web_search',
-          arguments: { query: userQuery }
-        });
-        for (let i = 0; i < 3; i++) {
-          plan.push({
-            step: 2 + i,
-            description: `Read content from top result #${i + 1}`,
-            tool: 'read_url',
-            arguments: { url: '<<TO_BE_FILLED_BY_EXECUTOR>>' }
-          });
-        }
-        plan.push({
-          step: 5,
-          description: 'Summarize the findings from all read results',
-          tool: 'summarize',
-          arguments: { snippets: [] }
+          arguments: { query: term }
         });
       }
+      // Read top 3 results for each search term
+      for (let i = 0; i < searchTerms.length * 3; i++) {
+        plan.push({
+          step: stepNum++,
+          description: `Read content from top result #${i + 1}`,
+          tool: 'read_url',
+          arguments: { url: '<<TO_BE_FILLED_BY_EXECUTOR>>' }
+        });
+      }
+      plan.push({
+        step: stepNum++,
+        description: 'Summarize the findings from all read results',
+        tool: 'summarize',
+        arguments: { snippets: [] }
+      });
       if (this.debug) console.log('[PlanningAgent-DEBUG] Generated plan:', JSON.stringify(plan, null, 2));
       return plan;
     } catch (err) {

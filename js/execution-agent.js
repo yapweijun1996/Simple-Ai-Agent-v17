@@ -99,24 +99,13 @@ class ExecutionAgent {
         if (step.tool === 'read_url') {
           let snippet = '';
           let url = step.arguments.url;
-          let start = 0;
-          let chunkSize = 2000;
-          let maxChunks = 5;
-          let totalLength = 0;
-          let shouldContinue = true;
-          let chunkCount = 0;
-          while (shouldContinue && chunkCount < maxChunks && totalLength < 10000) {
-            this.debugLog('STEP', `read_url chunk: url=${url}, start=${start}, length=${chunkSize}`);
-            const result = await toolFn({ url, start, length: chunkSize });
-            this.debugLog('STEP', 'read_url result:', result);
-            if (!result || !result.snippet) break;
-            snippet += result.snippet;
-            totalLength += result.snippet.length;
-            // Ask LLM if more is needed
-            let aiReply = '';
-            try {
-              const prompt = `Given the following snippet from ${url}, do you need more content to answer the user's question? Please reply with "YES" or "NO" and a brief reason. If YES, estimate how many more characters you need.\n\nSnippet:\n${result.snippet}`;
-              this.debugLog('STEP', 'Deep reading LLM prompt:', prompt);
+          // Use AutoReaderAgent for adaptive reading
+          snippet = await AutoReaderAgent.readAdaptively(
+            this.toolHandlers.read_url,
+            url,
+            plan[0]?.arguments?.query || '',
+            async (prompt) => {
+              // Use LLM for "enough info?" check (reuse deep reading logic)
               const selectedModel = (typeof SettingsController !== 'undefined' && SettingsController.getSettings) ? SettingsController.getSettings().selectedModel : 'gpt-4.1-mini';
               if (selectedModel.startsWith('gpt')) {
                 if (typeof ApiService !== 'undefined' && ApiService.sendOpenAIRequest) {
@@ -124,7 +113,7 @@ class ExecutionAgent {
                     { role: 'system', content: 'You are an assistant that decides if more content is needed from a web page.' },
                     { role: 'user', content: prompt }
                   ]);
-                  aiReply = res.choices[0].message.content.trim().toLowerCase();
+                  return res.choices[0].message.content.trim();
                 }
               } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
                 if (typeof ApiService !== 'undefined' && ApiService.createGeminiSession) {
@@ -136,26 +125,15 @@ class ExecutionAgent {
                   const result = await session.sendMessage(prompt, chatHistory);
                   const candidate = result.candidates[0];
                   if (candidate.content.parts) {
-                    aiReply = candidate.content.parts.map(p => p.text).join(' ').trim().toLowerCase();
+                    return candidate.content.parts.map(p => p.text).join(' ').trim();
                   } else if (candidate.content.text) {
-                    aiReply = candidate.content.text.trim().toLowerCase();
+                    return candidate.content.text.trim();
                   }
                 }
               }
-              this.debugLog('STEP', 'Deep reading LLM response:', aiReply);
-            } catch (err) {
-              this.debugLog('WARN', 'Error in deep reading LLM call:', err && err.stack ? err.stack : err);
-              shouldContinue = false;
-              break;
+              return 'NO';
             }
-            if (aiReply.startsWith('yes') && totalLength < 10000) {
-              start += chunkSize;
-              chunkCount++;
-              shouldContinue = true;
-            } else {
-              shouldContinue = false;
-            }
-          }
+          );
           collectedSnippets.push(snippet);
           this.debugLog('STEP', 'Collected snippets after read_url:', collectedSnippets);
           results.push({ step: step.step, result: { url, snippet } });
