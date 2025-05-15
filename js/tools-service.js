@@ -137,17 +137,18 @@ const ToolsService = (function() {
           const texts = [];
           selectors.forEach(tag => {
             doc.querySelectorAll(tag).forEach(el => {
-              const t = el.textContent.trim();
+              const t = el.textContent && typeof el.textContent === 'string' ? el.textContent.trim() : '';
               if (t) texts.push(t);
             });
           });
           const resultText = texts.join('\n\n').trim();
-          return resultText;
+          if (resultText) return resultText;
         } catch (err) {
           toolsDebugLog(`Proxy ${proxy.name} failed: ${err.message}`);
         }
       }
-      throw new Error('All proxies failed');
+      toolsDebugLog('[readUrl] All proxies failed or no readable content. Returning empty string.');
+      return '';
     }
 
     /**
