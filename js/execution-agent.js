@@ -356,6 +356,7 @@ class ExecutionAgent {
         return;
       }
       await this.synthesizeFinalAnswer(aiReply, userQuery, narrateFn);
+      this.debugLog('STEP', '[Agent] Summarization complete. Single summary length:', aiReply.length);
       return;
     }
     const batches = splitIntoBatches(snippets, MAX_PROMPT_LENGTH);
@@ -407,11 +408,11 @@ class ExecutionAgent {
         if (typeof narrateFn === 'function') await narrateFn(`Summary:\n${combined}`);
         await this.synthesizeFinalAnswer(combined, userQuery, narrateFn);
       }
+      this.debugLog('STEP', '[Agent] Summarization complete. Combined summary length:', combined.length);
     } catch (err) {
       this.debugLog('ERROR', 'Summarization failed.', err && err.stack ? err.stack : err);
       if (typeof narrateFn === 'function') await narrateFn(`Summarization failed. Error: ${err && err.message ? err.message : err}`);
     }
-    this.debugLog('STEP', '[Agent] Summarization complete. Combined summary length:', combined.length);
   }
 
   /**
