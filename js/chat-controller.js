@@ -300,6 +300,9 @@ If you understand, follow these instructions for every relevant question. Do NOT
      */
     function updateSettings(newSettings) {
         state.settings = { ...state.settings, ...newSettings };
+        // Update agent debug mode if agents are in use
+        if (typeof PlanningAgent !== 'undefined') PlanningAgent.prototype.setDebug && PlanningAgent.prototype.setDebug(newSettings.debug);
+        if (typeof ExecutionAgent !== 'undefined') ExecutionAgent.prototype.setDebug && ExecutionAgent.prototype.setDebug(newSettings.debug);
         console.log('Chat settings updated:', state.settings);
     }
 
@@ -1005,8 +1008,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
      * @param {string} userQuery
      */
     async function runPlanningAndExecutionWorkflow(userQuery) {
+        // Get debug setting from global settings
+        const debug = SettingsController.getSettings().debug;
         // 1. Instantiate PlanningAgent and generate plan
-        const planningAgent = new PlanningAgent(Object.keys(toolHandlers));
+        const planningAgent = new PlanningAgent(Object.keys(toolHandlers), debug);
+        planningAgent.setDebug(debug);
         UIController.addMessage('ai', '🤔 Planning steps for your query...');
         const plan = await planningAgent.createPlan(userQuery);
         if (!plan || !plan.length) {
@@ -1017,7 +1023,8 @@ Answer: [your final, concise answer based on the reasoning above]`;
         const planHtml = `<div class="tool-result"><strong>Plan:</strong><ol>${plan.map(step => `<li><b>Step ${step.step}:</b> ${step.description} <span style='color:#888'>(Tool: ${step.tool})</span></li>`).join('')}</ol></div>`;
         UIController.addHtmlMessage('ai', planHtml);
         // 3. Instantiate ExecutionAgent
-        const executionAgent = new ExecutionAgent(toolHandlers);
+        const executionAgent = new ExecutionAgent(toolHandlers, debug);
+        executionAgent.setDebug(debug);
         // 4. Narrate and execute each step
         await executionAgent.executePlan(plan, msg => UIController.addMessage('ai', msg));
     }
