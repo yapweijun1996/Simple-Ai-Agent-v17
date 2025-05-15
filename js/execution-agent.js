@@ -81,6 +81,65 @@ class ExecutionAgent {
         // Store web_search results for dynamic URL filling
         if (step.tool === 'web_search' && Array.isArray(result)) {
           webSearchResults = result;
+          // --- AI-driven selection of which results to read ---
+          if (webSearchResults.length > 0) {
+            // Build prompt as in suggestResultsToRead
+            const prompt = `Given these search results for the query: "${step.arguments.query}", which results (by number) are most relevant to read in detail?\n\n${webSearchResults.map((r, idx) => `${idx+1}. ${r.title} - ${r.snippet}`).join('\n')}\n\nReply with a comma-separated list of result numbers.`;
+            let aiReply = '';
+            let selectedIndices = [];
+            try {
+              // Use OpenAI or Gemini as in chat-controller.js
+              const selectedModel = (typeof SettingsController !== 'undefined' && SettingsController.getSettings) ? SettingsController.getSettings().selectedModel : 'gpt-4.1-mini';
+              if (selectedModel.startsWith('gpt')) {
+                if (typeof ApiService !== 'undefined' && ApiService.sendOpenAIRequest) {
+                  const res = await ApiService.sendOpenAIRequest(selectedModel, [
+                    { role: 'system', content: 'You are an assistant helping to select the most relevant search results.' },
+                    { role: 'user', content: prompt }
+                  ]);
+                  aiReply = res.choices[0].message.content.trim();
+                }
+              } else if (selectedModel.startsWith('gemini') || selectedModel.startsWith('gemma')) {
+                if (typeof ApiService !== 'undefined' && ApiService.createGeminiSession) {
+                  const session = ApiService.createGeminiSession(selectedModel);
+                  const chatHistory = [
+                    { role: 'system', content: 'You are an assistant helping to select the most relevant search results.' },
+                    { role: 'user', content: prompt }
+                  ];
+                  const result = await session.sendMessage(prompt, chatHistory);
+                  const candidate = result.candidates[0];
+                  if (candidate.content.parts) {
+                    aiReply = candidate.content.parts.map(p => p.text).join(' ').trim();
+                  } else if (candidate.content.text) {
+                    aiReply = candidate.content.text.trim();
+                  }
+                }
+              }
+              if (this.debug) console.log('[ExecutionAgent-DEBUG] AI reply for result selection:', aiReply);
+              // Parse indices from reply
+              const match = aiReply && aiReply.match(/([\d, ]+)/);
+              if (match) {
+                selectedIndices = match[1].split(',').map(s => parseInt(s.trim(), 10) - 1).filter(n => !isNaN(n) && n >= 0 && n < webSearchResults.length);
+              }
+            } catch (err) {
+              if (this.debug) console.warn('[ExecutionAgent-DEBUG] Error in AI-driven result selection:', err);
+              // Fallback: just pick the top N
+              selectedIndices = [0, 1, 2].filter(idx => idx < webSearchResults.length);
+            }
+            // Update read_url steps with selected URLs
+            let readUrlStepIdx = 0;
+            for (let j = 0; j < plan.length; j++) {
+              if (plan[j].tool === 'read_url') {
+                if (selectedIndices[readUrlStepIdx] !== undefined && webSearchResults[selectedIndices[readUrlStepIdx]]) {
+                  plan[j].arguments.url = webSearchResults[selectedIndices[readUrlStepIdx]].url;
+                } else {
+                  // Remove or skip this step if not enough selected
+                  plan.splice(j, 1);
+                  j--;
+                }
+                readUrlStepIdx++;
+              }
+            }
+          }
         }
         // Fallback: If web_search returns empty, run instant_answer
         if (step.tool === 'web_search' && Array.isArray(result) && result.length === 0) {
