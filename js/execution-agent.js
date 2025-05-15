@@ -28,6 +28,14 @@ class ExecutionAgent {
     while (i < plan.length) {
       const step = plan[i];
       if (this.debug) console.log('[ExecutionAgent-DEBUG] Executing step:', step);
+      // Handle summarize step internally BEFORE tool handler lookup
+      if (step.tool === 'summarize') {
+        step.arguments.snippets = collectedSnippets.slice();
+        if (this.debug) console.log('[ExecutionAgent-DEBUG] Passing collected snippets to summarize step:', collectedSnippets);
+        await this.summarizeAndSynthesize(collectedSnippets.slice(), plan[0]?.arguments?.query || '', narrateFn);
+        i++;
+        continue;
+      }
       // Fill in read_url step URLs dynamically from web_search results
       if (step.tool === 'read_url' && step.arguments.url === '<<TO_BE_FILLED_BY_EXECUTOR>>') {
         if (Array.isArray(webSearchResults)) {
@@ -219,12 +227,6 @@ class ExecutionAgent {
               plan.splice(i + 1, 0, instantStep);
             }
           }
-        }
-        // After all read_url steps, pass collectedSnippets to summarize step
-        if (step.tool === 'summarize') {
-          step.arguments.snippets = collectedSnippets.slice();
-          if (this.debug) console.log('[ExecutionAgent-DEBUG] Passing collected snippets to summarize step:', collectedSnippets);
-          await this.summarizeAndSynthesize(collectedSnippets.slice(), plan[0]?.arguments?.query || '', narrateFn);
         }
       } catch (err) {
         const errorMsg = `Error in step ${step.step}: ${err.message}`;
