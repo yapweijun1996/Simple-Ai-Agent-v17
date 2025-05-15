@@ -9,9 +9,11 @@ const MemoryAgent = (function() {
   function getRelevantContext(currentQuery) {
     // Return last topic or facts for context-aware agents
     const last = history[history.length - 1] || {};
+    const facts = last.facts || {};
+    const lastTopic = (typeof facts.topic === 'string' && facts.topic) ? facts.topic : extractTopic(last.userQuery);
     return {
-      lastTopic: last.facts.topic || extractTopic(last.userQuery),
-      facts: last.facts
+      lastTopic: lastTopic || '',
+      facts: facts
     };
   }
 
