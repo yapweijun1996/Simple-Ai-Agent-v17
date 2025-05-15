@@ -199,8 +199,10 @@ class ExecutionAgent {
             }
           }
           if (step.tool === 'web_search' && Array.isArray(result)) {
-            webSearchResults = result;
-            this.debugLog('STEP', 'Web search results:', webSearchResults);
+            // Source Filtering and Deduplication Agents
+            webSearchResults = filterRelevantResults(result, step.arguments.query);
+            webSearchResults = deduplicateResults(webSearchResults);
+            this.debugLog('STEP', 'Filtered and deduplicated web search results:', webSearchResults);
             // --- AI-driven selection of which results to read ---
             if (webSearchResults.length > 0) {
               const prompt = `Given these search results for the query: "${step.arguments.query}", which results (by number) are most relevant to read in detail?\n\n${webSearchResults.map((r, idx) => `${idx+1}. ${r.title} - ${r.snippet}`).join('\n')}\n\nReply with a comma-separated list of result numbers.`;
@@ -464,6 +466,11 @@ class ExecutionAgent {
       if (finalAnswer && typeof narrateFn === 'function') {
         await narrateFn(`Final Answer:\n${finalAnswer}`);
       }
+      if (!isAnswerRelevant(finalAnswer, userQuery)) {
+        if (typeof narrateFn === 'function') {
+          await narrateFn('The answer may be too generic or not relevant. Please try to be more specific in your query.');
+        }
+      }
     } catch (err) {
       this.debugLog('ERROR', 'Final answer synthesis failed.', err && err.stack ? err.stack : err);
       if (typeof narrateFn === 'function') await narrateFn(`Final answer synthesis failed. Error: ${err && err.message ? err.message : err}`);
@@ -473,4 +480,28 @@ class ExecutionAgent {
 
 // Export for use in other modules
 if (typeof module !== 'undefined') module.exports = { ExecutionAgent };
-if (typeof window !== 'undefined') window.ExecutionAgent = ExecutionAgent; 
+if (typeof window !== 'undefined') window.ExecutionAgent = ExecutionAgent;
+
+// Source Filtering Agent
+function filterRelevantResults(results, query) {
+  // Example: Only keep car-related results for car queries
+  if (/car|auto|vehicle|model|spec/i.test(query)) {
+    return results.filter(r => /car|auto|vehicle|sedan|suv|hatchback|proton|toyota|honda|tesla|bmw|mercedes|nissan|ford|chevrolet|hyundai|kia|mazda|mitsubishi|volkswagen|audi|lexus|subaru|volvo|peugeot|renault|citroen|fiat|jeep|land rover|jaguar|porsche|mini|infiniti|acura|cadillac|chrysler|dodge|ram|gmc|lincoln|buick|genesis|alfa romeo|aston martin|bentley|bugatti|ferrari|lamborghini|maserati|mclaren|rolls-royce/i.test(r.title + r.snippet + r.url));
+  }
+  return results;
+}
+
+// Deduplication Agent
+function deduplicateResults(results) {
+  const seen = new Set();
+  return results.filter(r => {
+    if (seen.has(r.url)) return false;
+    seen.add(r.url);
+    return true;
+  });
+}
+
+// Critic Agent
+function isAnswerRelevant(answer, query) {
+  return answer && answer.length > 30 && !/database|tool|winner|nominee|not sure|no relevant|no result|no answer|unclear|generic|broad|ambiguous|all models|all specs|all prices/i.test(answer);
+} 

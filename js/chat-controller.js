@@ -700,6 +700,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
         return planPatterns.some(re => re.test(text.trim()));
     }
 
+    // Query Clarification Agent
+    function isQueryTooBroad(query) {
+        return /all model|every model|list all|specs for all|all prices|all specs|all brands|all makes|all vehicles|all cars/i.test(query);
+    }
+
     /**
      * Runs the planning and execution workflow for a user query.
      * 1. Generates a plan using PlanningAgent.
@@ -709,6 +714,11 @@ Answer: [your final, concise answer based on the reasoning above]`;
      * @param {string} userQuery
      */
     async function runPlanningAndExecutionWorkflow(userQuery) {
+        // Query clarification step
+        if (isQueryTooBroad(userQuery)) {
+            UIController.addMessage('ai', 'Your query is very broad or ambiguous. Please specify a brand, model, or category for more precise results.');
+            return;
+        }
         // Get debug setting from global settings
         const debug = SettingsController.getSettings().debug;
         // 1. Instantiate PlanningAgent and generate plan
