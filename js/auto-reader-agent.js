@@ -1,20 +1,22 @@
 // js/auto-reader-agent.js
 // AutoReaderAgent: reads pages adaptively using dynamic reader settings
 
-// Node.js: require if not already defined. Browser: just use global.
-let ReaderSettingsAgent;
-if (typeof module !== 'undefined' && module.exports) {
-  try {
-    ({ ReaderSettingsAgent } = require('./reader-settings-agent.js'));
-  } catch (e) {
-    ReaderSettingsAgent = global.ReaderSettingsAgent;
-  }
-} else {
-  ReaderSettingsAgent = window.ReaderSettingsAgent;
-}
-
-const AutoReaderAgent = (function() {
+(function() {
   'use strict';
+
+  // Determine ReaderSettingsAgent implementation
+  let rsa;
+  if (typeof module !== 'undefined' && module.exports) {
+    // Node.js environment
+    try {
+      rsa = require('./reader-settings-agent.js').ReaderSettingsAgent;
+    } catch (e) {
+      rsa = global.ReaderSettingsAgent;
+    }
+  } else {
+    // Browser environment
+    rsa = window.ReaderSettingsAgent;
+  }
 
   /**
    * Reads content from a URL in adaptive chunks, consulting an LLM if more is needed.
@@ -28,21 +30,19 @@ const AutoReaderAgent = (function() {
     let start = 0;
     let content = '';
     // Fetch dynamic reader settings
-    const settings = ReaderSettingsAgent.getSettingsFor(url, userQuery);
+    const settings = rsa.getSettingsFor(url, userQuery);
     let chunkSize = settings.chunkSize;
     let maxChunks = settings.maxChunks;
 
     for (let i = 0; i < maxChunks; i++) {
       let result;
       try {
-        // readUrlFn expects an argument object
         result = await readUrlFn({ url, start, length: chunkSize });
-      } catch (e) {
-        console.warn(`AutoReaderAgent: readUrlFn error: ${e.message}`);
+      } catch (err) {
+        console.warn(`AutoReaderAgent: readUrlFn error: ${err.message}`);
         break;
       }
 
-      // Extract snippet text
       let snippet = '';
       if (typeof result === 'string') {
         snippet = result;
@@ -53,13 +53,10 @@ const AutoReaderAgent = (function() {
       }
       content += snippet;
 
-      // Ask LLM if more content is needed
       if (typeof llmAskFn === 'function') {
         const prompt = `Given this content, do you have enough info to answer: "${userQuery}"?\n\n${content}`;
         const response = await llmAskFn(prompt);
-        if (response && response.toLowerCase().startsWith('yes')) {
-          break;
-        }
+        if (response && response.toLowerCase().startsWith('yes')) break;
       }
 
       start += chunkSize;
@@ -67,11 +64,12 @@ const AutoReaderAgent = (function() {
     return content;
   }
 
-  return { readAdaptively };
+  const AutoReaderAgent = { readAdaptively };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { AutoReaderAgent };
+  }
+  if (typeof window !== 'undefined') {
+    window.AutoReaderAgent = AutoReaderAgent;
+  }
 })();
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { AutoReaderAgent };
-}
-
-if (typeof window !== 'undefined') window.AutoReaderAgent = AutoReaderAgent;
