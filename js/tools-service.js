@@ -87,17 +87,21 @@ const ToolsService = (function() {
       const parseResults = function(htmlString) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlString, 'text/html');
-        const container = doc.getElementById('links');
-        if (!container) return [];
-        const items = container.querySelectorAll('div.result');
+        // Find result anchors directly
+        const anchors = doc.querySelectorAll('a.result__a');
+        if (!anchors.length) {
+          console.warn('[TOOLS-DEBUG] No search result anchors found.');
+          return [];
+        }
         const results = [];
-        items.forEach(item => {
-          const anchor = item.querySelector('a.result__a');
-          if (!anchor) return;
+        anchors.forEach(anchor => {
           const href = getFinalUrl(anchor.href);
           const title = anchor.textContent.trim();
-          const snippetElem = item.querySelector('a.result__snippet, div.result__snippet');
-          const snippet = snippetElem ? snippetElem.textContent.trim() : '';
+          // Try to find snippet within the same result container
+          let snippet = '';
+          const parent = anchor.closest('div.result, article.result') || anchor.parentElement;
+          const snippetElem = parent.querySelector('a.result__snippet, div.result__snippet, div.result__snippet');
+          if (snippetElem) snippet = snippetElem.textContent.trim();
           results.push({ title, url: href, snippet });
         });
         return results;
