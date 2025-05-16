@@ -245,6 +245,13 @@ class ExecutionAgent {
             }
           }
           if (step.tool === 'web_search' && Array.isArray(result) && result.length === 0) {
+            // Remove placeholder read_url steps that follow this web_search step
+            let idx = i + 1;
+            while (idx < plan.length && plan[idx].tool === 'read_url') {
+              this.debugLog('STEP', 'Removing placeholder read_url step due to no search results:', plan[idx]);
+              plan.splice(idx, 1);
+            }
+            // Insert fallback instant_answer step
             const alreadyHasInstant = plan.some(s => s.tool === 'instant_answer');
             if (!alreadyHasInstant) {
               const instantStep = {
