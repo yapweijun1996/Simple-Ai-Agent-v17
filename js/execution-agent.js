@@ -76,14 +76,24 @@ class ExecutionAgent {
       }
       // Fill in read_url step URLs dynamically from web_search results
       if (step.tool === 'read_url' && step.arguments.url === '<<TO_BE_FILLED_BY_EXECUTOR>>') {
-        if (!Array.isArray(webSearchResults)) {
-          this.debugLog('STEP', '[Agent] Skipping read_url step: No web search results available.', step);
+        // Skip placeholder read_url steps if no search results
+        if (!Array.isArray(webSearchResults) || webSearchResults.length === 0) {
+          this.debugLog('STEP', '[Agent] Skipping placeholder read_url step due to no search results.', step);
+          console.groupEnd();
+          i++;
+          continue;
+        }
+        // Otherwise, fill in URL from search results
+        const readUrlSteps = plan.filter(s => s.tool === 'read_url');
+        const thisReadUrlIndex = readUrlSteps.indexOf(step);
+        const resultItem = webSearchResults[thisReadUrlIndex];
+        if (resultItem && resultItem.url) {
+          step.arguments.url = resultItem.url;
         } else {
-          const readUrlSteps = plan.filter(s => s.tool === 'read_url');
-          const thisReadUrlIndex = readUrlSteps.indexOf(step);
-          if (!webSearchResults[thisReadUrlIndex]) {
-            this.debugLog('STEP', `[Agent] Skipping read_url step #${thisReadUrlIndex + 1}: No corresponding web search result.`, step);
-          }
+          this.debugLog('STEP', `[Agent] No URL found for read_url step #${thisReadUrlIndex + 1}, skipping.`, step);
+          console.groupEnd();
+          i++;
+          continue;
         }
       }
       if (typeof narrateFn === 'function') {
