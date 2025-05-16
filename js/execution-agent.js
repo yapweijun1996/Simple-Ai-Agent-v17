@@ -1,5 +1,13 @@
 // js/execution-agent.js
 
+// Ensure AutoReaderAgent is available in both Node.js and browser environments
+let AutoReaderAgent;
+try {
+  ({ AutoReaderAgent } = require('./auto-reader-agent.js'));
+} catch (e) {
+  AutoReaderAgent = window.AutoReaderAgent;
+}
+
 class ExecutionAgent {
   /**
    * @param {Object} toolHandlers - An object mapping tool names to handler functions.
