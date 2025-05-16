@@ -625,7 +625,8 @@ const UIController = (function() {
             const messageElement = Utils.createFromTemplate('message-template');
             messageElement.classList.add(`${sender}-message`);
             const contentElement = messageElement.querySelector('.chat-app__message-content');
-            contentElement.innerHTML = html;
+            // Sanitize HTML before inserting
+            contentElement.innerHTML = Utils.escapeHtml(html);
             chatWindow.appendChild(messageElement);
             messageElement.scrollIntoView({ behavior: 'smooth', block: 'end' });
             return messageElement;
