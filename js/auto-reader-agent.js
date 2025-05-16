@@ -1,11 +1,14 @@
 // js/auto-reader-agent.js
 // AutoReaderAgent: reads pages adaptively using dynamic reader settings
 
-let ReaderSettingsAgent;
-try {
-  ({ ReaderSettingsAgent } = require('./reader-settings-agent.js'));
-} catch (e) {
-  ReaderSettingsAgent = window.ReaderSettingsAgent;
+// Use existing ReaderSettingsAgent if available, otherwise require (for Node)
+var ReaderSettingsAgent = typeof ReaderSettingsAgent !== 'undefined' ? ReaderSettingsAgent : undefined;
+if (typeof ReaderSettingsAgent === 'undefined') {
+  try {
+    ({ ReaderSettingsAgent } = require('./reader-settings-agent.js'));
+  } catch (e) {
+    ReaderSettingsAgent = window.ReaderSettingsAgent;
+  }
 }
 
 const AutoReaderAgent = (function() {
@@ -68,3 +71,5 @@ const AutoReaderAgent = (function() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { AutoReaderAgent };
 }
+
+if (typeof window !== 'undefined') window.AutoReaderAgent = AutoReaderAgent;
