@@ -87,20 +87,28 @@ const ToolsService = (function() {
       const parseResults = function(htmlString) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlString, 'text/html');
-        // Find result anchors directly
-        const anchors = doc.querySelectorAll('a.result__a');
+        // Primary selector: DuckDuckGo result links
+        let anchors = doc.querySelectorAll('a.result__a');
+        // Fallback: header links
+        if (!anchors.length) anchors = doc.querySelectorAll('h2 a[href^="http"]');
+        // Fallback: any external link with duckduckgo redirect or direct URL
         if (!anchors.length) {
-          console.warn('[TOOLS-DEBUG] No search result anchors found.');
+          anchors = Array.from(doc.querySelectorAll('a[href^="http"]')).filter(a =>
+            /duckduckgo\.com\/l\/|https?:\/\//.test(a.href)
+          );
+        }
+        if (!anchors.length) {
+          console.warn('[TOOLS-DEBUG] No search result anchors found after fallbacks.');
           return [];
         }
         const results = [];
-        anchors.forEach(anchor => {
-          const href = getFinalUrl(anchor.href);
-          const title = anchor.textContent.trim();
+        anchors.forEach(a => {
+          const href = getFinalUrl(a.href);
+          const title = a.textContent.trim();
           // Try to find snippet within the same result container
           let snippet = '';
-          const parent = anchor.closest('div.result, article.result') || anchor.parentElement;
-          const snippetElem = parent.querySelector('a.result__snippet, div.result__snippet, div.result__snippet');
+          const parent = a.closest('div.result, article.result') || a.parentElement;
+          const snippetElem = parent.querySelector('a.result__snippet, div.result__snippet');
           if (snippetElem) snippet = snippetElem.textContent.trim();
           results.push({ title, url: href, snippet });
         });
